@@ -1,0 +1,16 @@
+{
+  "short_name": "WealthSnap",
+  "name": "WealthSnapshot Finance Tracker",
+  "icons": [
+    {
+      "src": "https://cdn-icons-png.flaticon.com/512/2936/2936758.png",
+      "type": "image/png",
+      "sizes": "512x512"
+    }
+  ],
+  "start_url": ".",
+  "display": "standalone",
+  "theme_color": "#0052CC",
+  "background_color": "#F8F9FA",
+  "orientation": "portrait"
+}
