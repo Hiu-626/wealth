@@ -290,10 +290,20 @@ const UpdatePage: React.FC<UpdatePageProps> = ({ accounts, onSave }) => {
                   </div>
                 ))}
               </div>
-              <div className="p-6 bg-white border-t">
-                <button onClick={handleAISyncConfirm} disabled={isSaving} className="w-full py-5 bg-blue-600 text-white rounded-[1.5rem] font-black flex justify-center items-center gap-3 active:scale-95 transition-all">
-                  {isSaving ? <Loader2 className="animate-spin" /> : <CheckCircle2 size={24} />} CONFIRM & SYNC
-                </button>
+              <div className="p-6 bg-white border-t flex gap-3">
+                 <button 
+                    onClick={() => setScannedItems([])} 
+                    className="py-5 px-6 bg-red-50 text-red-500 rounded-[1.5rem] font-black flex justify-center items-center gap-2 active:scale-95 transition-all hover:bg-red-100"
+                 >
+                    <X size={20} /> CANCEL
+                 </button>
+                 <button 
+                    onClick={handleAISyncConfirm} 
+                    disabled={isSaving} 
+                    className="flex-1 py-5 bg-blue-600 text-white rounded-[1.5rem] font-black flex justify-center items-center gap-3 active:scale-95 transition-all shadow-xl shadow-blue-200"
+                 >
+                    {isSaving ? <Loader2 className="animate-spin" /> : <CheckCircle2 size={24} />} CONFIRM & SYNC
+                 </button>
               </div>
             </div>
           )}

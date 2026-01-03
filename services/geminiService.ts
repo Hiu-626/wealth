@@ -1,12 +1,9 @@
 import { GoogleGenAI, Type, GenerateContentResponse } from "@google/genai";
 
 // Retrieve API Key safely. 
-// Vercel/Vite uses import.meta.env.VITE_GEMINI_API_KEY.
-// process.env.API_KEY is kept for compatibility if defined.
 const getApiKey = (): string | undefined => {
   let key: string | undefined;
   
-  // Try Vite env (Standard for Vercel Vite deployments)
   try {
     // @ts-ignore
     if (typeof import.meta !== 'undefined' && import.meta.env) {
@@ -15,7 +12,6 @@ const getApiKey = (): string | undefined => {
     }
   } catch {}
 
-  // Try process.env if not found (Node/Standard fallback)
   if (!key) {
     try {
       if (typeof process !== 'undefined' && process.env) {
@@ -27,11 +23,11 @@ const getApiKey = (): string | undefined => {
 };
 
 const apiKey = getApiKey();
-// Initialize only if key exists to prevent "An API Key must be set" error
+// Initialize only if key exists
 const ai = apiKey ? new GoogleGenAI({ apiKey }) : null;
 
 if (!ai) {
-  console.warn("WealthSnapshot: Gemini API Key is missing. AI features will be disabled. Check VITE_GEMINI_API_KEY in Vercel.");
+  console.warn("WealthSnapshot: Gemini API Key is missing.");
 }
 
 export interface ScannedAsset {
@@ -45,6 +41,7 @@ export interface ScannedAsset {
 
 /**
  * Helper to retry functions on 429 (Rate Limit) errors
+ * Retries 3 times with exponential backoff (2s -> 4s -> 8s)
  */
 const runWithRetry = async <T>(fn: () => Promise<T>, retries = 3, delay = 2000): Promise<T> => {
   try {
@@ -70,15 +67,12 @@ const runWithRetry = async <T>(fn: () => Promise<T>, retries = 3, delay = 2000):
  * Estimate stock price using Gemini 3 Flash
  */
 export const getStockEstimate = async (symbol: string): Promise<number | null> => {
-  if (!ai) {
-    console.warn("Gemini API not initialized (Missing API Key)");
-    return null;
-  }
+  if (!ai) return null;
 
   try {
     const response: GenerateContentResponse = await runWithRetry(() => ai!.models.generateContent({
       model: "gemini-3-flash-preview",
-      contents: `What is the approximate current stock price of ${symbol}?`,
+      contents: `What is the approximate current stock price of ${symbol}? Return JSON only.`,
       config: {
         responseMimeType: "application/json",
         responseSchema: {
@@ -104,20 +98,16 @@ export const getStockEstimate = async (symbol: string): Promise<number | null> =
  * Analyze financial statement image using Gemini 3 Flash
  */
 export const parseFinancialStatement = async (base64Data: string): Promise<ScannedAsset[] | null> => {
-  if (!ai) {
-    console.warn("Gemini API not initialized (Missing API Key)");
-    return null;
-  }
+  if (!ai) return null;
 
   try {
     const prompt = `
-      Analyze this financial statement image. Extract asset details.
-      Identify bank accounts (CASH) and stock positions (STOCK).
-      
-      Rules:
-      1. For STOCK, 'amount' must be the QUANTITY/SHARES held, NOT the value.
-      2. For CASH, 'amount' is the BALANCE.
-      3. If currency is not clear, infer from context.
+      Extract all assets from this image. 
+      - STOCK: For shares/equities/investments. 'amount' is number of shares (quantity). 'symbol' is ticker (e.g. ANZ, AAPL, 700).
+      - CASH: For bank balances/savings. 'amount' is the monetary balance. 
+      - Institution: Name of bank/broker (e.g. CommSec, HSBC, Interactive Brokers).
+      - Currency: Must be HKD, USD, or AUD based on symbols or context (default to HKD if ambiguous).
+      Return as a JSON array.
     `;
 
     const response: GenerateContentResponse = await runWithRetry(() => ai!.models.generateContent({
@@ -142,6 +132,7 @@ export const parseFinancialStatement = async (base64Data: string): Promise<Scann
             properties: {
               category: { 
                 type: Type.STRING, 
+                enum: ["CASH", "STOCK"],
                 description: "Must be 'CASH' or 'STOCK'" 
               },
               institution: { type: Type.STRING },
@@ -159,12 +150,19 @@ export const parseFinancialStatement = async (base64Data: string): Promise<Scann
     }));
 
     const text = response.text;
-    if (!text) return null;
-    return JSON.parse(text) as ScannedAsset[];
-  } catch (error) {
-    console.error("Error parsing financial statement:", error);
+    console.log("AI Raw Output:", text);
+
+    if (!text || text.trim() === "" || text === "[]") {
+      console.warn("AI returned empty result");
+      return null;
+    }
+
+    const parsed = JSON.parse(text);
+    return Array.isArray(parsed) ? parsed : null;
+  } catch (error: any) {
+    console.error("Critical AI Error:", error);
     if (JSON.stringify(error).includes("RESOURCE_EXHAUSTED")) {
-      alert("⚠️ Gemini AI usage limit reached (429). Please try again in a few moments.");
+        alert("⚠️ Gemini AI 請求過多 (429)。系統正在重試，請稍候再試。");
     }
     return null;
   }
