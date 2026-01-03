@@ -1,9 +1,8 @@
-import { GoogleGenAI } from "@google/genai";
+// 確保是這個官方 Library
+import { GoogleGenerativeAI } from "@google/generative-ai"; 
 
-// Initialization according to system guidelines
-// We use a safe accessor to prevent "process is not defined" error in some browser environments if logic leaks
-// However, per instructions, we rely on process.env.API_KEY.
-const apiKey = process.env.API_KEY || '';
+// 確保是用 Vite 的讀取方式
+const genAI = new GoogleGenerativeAI(import.meta.env.VITE_GEMINI_API_KEY);
 
 let ai: GoogleGenAI | null = null;
 if (apiKey) {
