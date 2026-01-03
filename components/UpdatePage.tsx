@@ -37,7 +37,6 @@ const UpdatePage: React.FC<UpdatePageProps> = ({ accounts, onSave }) => {
     setShowConfetti(true);
 
     // A. 雲端同步 (非阻塞式 - Fire and Forget)
-    // 我們不等待這個 fetch 完成，這樣即使網路慢也不會卡住 UI
     if (GOOGLE_SCRIPT_URL && GOOGLE_SCRIPT_URL.includes('/exec')) {
       const payload = {
         assets: updatedLocalAccounts.map(acc => ({
@@ -58,17 +57,17 @@ const UpdatePage: React.FC<UpdatePageProps> = ({ accounts, onSave }) => {
       }).catch(e => console.warn("Cloud sync skipped:", e));
     }
 
-    // B. 本地儲存與跳轉 (延遲 1.2 秒讓動畫跑完)
+    // B. 本地儲存與跳轉 (延遲 1 秒讓動畫展示，然後強制跳轉)
     setTimeout(() => {
       onSave(updatedLocalAccounts);
       setIsSaving(false);
-    }, 1200);
+    }, 1000);
   };
 
   // --- 2. 手動功能：新增與刪除 ---
   const handleAddAsset = async () => {
     if (!newAssetType) return;
-    setIsSaving(true); // 暫時顯示 loading
+    setIsSaving(true);
     
     let price = 0;
     let finalSymbol = newItemData.symbol.toUpperCase().trim();
@@ -76,7 +75,7 @@ const UpdatePage: React.FC<UpdatePageProps> = ({ accounts, onSave }) => {
     // 自動補全市場後綴邏輯
     if (newAssetType === AccountType.STOCK && finalSymbol) {
       if (/^\d{1,4}$/.test(finalSymbol)) finalSymbol = finalSymbol.padStart(5, '0') + '.HK';
-      // 簡單獲取價格 (如果 API Key 設定正確)
+      // 簡單獲取價格
       try {
         const est = await getStockEstimate(finalSymbol);
         price = est || 0;
@@ -157,9 +156,8 @@ const UpdatePage: React.FC<UpdatePageProps> = ({ accounts, onSave }) => {
 
     const finalAccounts = [...localAccounts, ...enriched];
     setLocalAccounts(finalAccounts);
-    setScannedItems([]); // 清空掃描結果
+    setScannedItems([]); 
     
-    // 執行最終儲存
     handleFinalSave(finalAccounts);
   };
 
@@ -232,8 +230,9 @@ const UpdatePage: React.FC<UpdatePageProps> = ({ accounts, onSave }) => {
             </div>
           </section>
 
-          <button onClick={() => handleFinalSave(localAccounts)} disabled={isSaving} className="fixed bottom-28 left-6 right-6 bg-blue-600 text-white py-5 rounded-[2rem] font-black shadow-2xl shadow-blue-200 flex justify-center items-center gap-3 active:scale-95 transition-all disabled:bg-gray-400 z-30">
-            {isSaving ? <Loader2 className="animate-spin" /> : <Save size={20} />} {isSaving ? 'SAVING...' : 'SAVE & UPDATE'}
+          <button onClick={() => handleFinalSave(localAccounts)} disabled={isSaving} className="fixed bottom-28 left-6 right-6 bg-blue-600 text-white py-5 rounded-[2rem] font-black shadow-2xl shadow-blue-200 flex justify-center items-center gap-3 active:scale-95 transition-all disabled:bg-gray-400 z-30 hover:shadow-blue-300">
+            {isSaving ? <Loader2 className="animate-spin" /> : <Save size={20} />} 
+            {isSaving ? 'UPDATING...' : 'SAVE & UPDATE'}
           </button>
         </div>
       ) : (

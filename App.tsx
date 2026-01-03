@@ -19,11 +19,11 @@ const App: React.FC = () => {
   const handleUpdateAccounts = (newAccounts: Account[]) => {
     if (!data) return;
     
-    // Calculate new total for history
+    // 1. Calculate new total for history
     const totalWealth = calculateTotalWealthHKD(newAccounts, data.fixedDeposits);
     const todayStr = new Date().toISOString().slice(0, 7); // YYYY-MM
     
-    // Update history (replace if same month, else push)
+    // 2. Update history (replace if same month, else push)
     const newHistory = [...(data.history || [])];
     const existingIndex = newHistory.findIndex(h => h.date === todayStr);
     
@@ -33,6 +33,7 @@ const App: React.FC = () => {
       newHistory.push({ date: todayStr, totalValueHKD: totalWealth });
     }
 
+    // 3. Create new state object
     const newState: AppState = {
       ...data,
       accounts: newAccounts,
@@ -40,10 +41,11 @@ const App: React.FC = () => {
       lastUpdated: new Date().toISOString()
     };
 
-    setData(newState);
+    // 4. Save and Update State
     saveStoredData(newState);
+    setData(newState);
     
-    // Automatically navigate back to Overview to show updated data
+    // 5. Navigate back to Overview immediately
     setCurrentView('overview');
   };
 
@@ -101,12 +103,14 @@ const App: React.FC = () => {
     saveStoredData(newState);
   };
 
-  if (!data) return <div className="flex h-screen items-center justify-center text-[#0052CC]">Loading...</div>;
+  if (!data) return <div className="flex h-screen items-center justify-center text-[#0052CC] font-bold animate-pulse">Loading WealthSnapshot...</div>;
 
   return (
     <Layout currentView={currentView} onNavigate={setCurrentView}>
       {currentView === 'overview' && (
         <Overview 
+          // Adding key forces React to re-mount the component when lastUpdated changes, ensuring fresh data display
+          key={data.lastUpdated}
           accounts={data.accounts}
           fixedDeposits={data.fixedDeposits}
           lastUpdated={data.lastUpdated}

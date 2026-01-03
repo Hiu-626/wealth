@@ -88,7 +88,7 @@ const Overview: React.FC<OverviewProps> = ({
       {/* Header */}
       <div className="flex justify-between items-center">
         <div>
-           <h1 className="text-2xl font-bold text-gray-800">Overview</h1>
+           <h1 className="text-2xl font-bold text-gray-800 tracking-tight">WealthSnapshot</h1>
            <div className={`text-xs font-medium ${isStale ? 'text-red-500' : 'text-gray-400'}`}>
              {isStale ? 'Update needed!' : `Updated ${daysSinceUpdate}d ago`}
            </div>

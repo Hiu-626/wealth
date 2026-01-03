@@ -1,7 +1,18 @@
 import { GoogleGenAI } from "@google/genai";
 
 // Initialization according to system guidelines
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+// We use a safe accessor to prevent "process is not defined" error in some browser environments if logic leaks
+// However, per instructions, we rely on process.env.API_KEY.
+const apiKey = process.env.API_KEY || '';
+
+let ai: GoogleGenAI | null = null;
+if (apiKey) {
+    try {
+        ai = new GoogleGenAI({ apiKey: apiKey });
+    } catch (e) {
+        console.warn("Failed to initialize GoogleGenAI", e);
+    }
+}
 
 export interface ScannedAsset {
   category: 'CASH' | 'STOCK';
@@ -16,6 +27,7 @@ export interface ScannedAsset {
  * Estimate stock price using Gemini 3 Flash Preview
  */
 export const getStockEstimate = async (symbol: string): Promise<number | null> => {
+  if (!ai) return null;
   try {
     const response = await ai.models.generateContent({
       model: 'gemini-3-flash-preview',
@@ -43,6 +55,7 @@ export const getStockEstimate = async (symbol: string): Promise<number | null> =
  * Analyze financial statement image using Gemini Vision
  */
 export const parseFinancialStatement = async (base64Data: string, isDebug: boolean = false): Promise<ScannedAsset[] | null> => {
+  if (!ai) return null;
   try {
     const prompt = `
       Analyze this financial statement image. Extract asset details into a JSON list.
