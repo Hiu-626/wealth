@@ -1,5 +1,6 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 
+// 確保 Vite 能讀到 Key
 const API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
 const genAI = API_KEY ? new GoogleGenerativeAI(API_KEY) : null;
 
@@ -11,15 +12,19 @@ export interface ScannedAsset {
   currency: string;
 }
 
-// 估算股價
+// 1. 估算股價
 export const getStockEstimate = async (symbol: string): Promise<number | null> => {
-  if (!genAI) return null;
+  if (!genAI) {
+    console.error("API Key missing");
+    return null;
+  }
   try {
-    // 修正點：改用 gemini-1.5-flash-latest
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash-latest" });
+    // 統一改用 gemini-1.5-flash，這是目前最穩定的 Endpoint 名稱
+    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
     const result = await model.generateContent(`Current price of ${symbol}? Return ONLY JSON: {"price": 123.4}`);
     const response = await result.response;
-    const data = JSON.parse(response.text());
+    const text = response.text().replace(/```json|```/g, "").trim();
+    const data = JSON.parse(text);
     return data.price || null;
   } catch (e) {
     console.error("Stock API Error:", e);
@@ -27,12 +32,14 @@ export const getStockEstimate = async (symbol: string): Promise<number | null> =
   }
 };
 
-// AI 掃描單據
+// 2. AI 掃描單據
 export const parseFinancialStatement = async (base64Data: string): Promise<ScannedAsset[] | null> => {
-  if (!genAI) return null;
+  if (!genAI) {
+    console.error("API Key missing");
+    return null;
+  }
   try {
-    // 修正點：改用 gemini-1.5-flash-latest
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash-latest" });
+    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
     const prompt = `Extract assets from this image into JSON list: [{"category": "CASH"|"STOCK", "institution": "name", "symbol": "ticker", "amount": number, "currency": "HKD"}]. For stocks, amount is quantity.`;
 
     const result = await model.generateContent([
@@ -42,7 +49,7 @@ export const parseFinancialStatement = async (base64Data: string): Promise<Scann
 
     const response = await result.response;
     const text = response.text();
-    // 預防 AI 回傳 Markdown 格式 (```json ... ```)
+    // 增加過濾：確保 JSON 解析不會因為 Markdown 標籤失敗
     const cleanJson = text.replace(/```json|```/g, "").trim();
     return JSON.parse(cleanJson);
   } catch (e) {
