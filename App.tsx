@@ -10,7 +10,11 @@ import FDManager from './components/FDManager';
 const App: React.FC = () => {
   const [data, setData] = useState<AppState | null>(null);
   const [currentView, setCurrentView] = useState<ViewState>('overview');
-
+ // --- 加在這裡 ---
+  useEffect(() => {
+    console.log("API Key Check:", import.meta.env.VITE_GEMINI_API_KEY ? "✅ 已讀到 API Key" : "❌ 未讀到 API Key (請檢查 Vercel 設定)");
+  }, []);
+  // ----------------
   useEffect(() => {
     const loadedData = getStoredData();
     setData(loadedData);
