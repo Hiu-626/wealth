@@ -64,14 +64,15 @@ const runWithRetry = async <T>(fn: () => Promise<T>, retries = 3, delay = 2000):
 };
 
 /**
- * Estimate stock price using Gemini 3 Flash
+ * Estimate stock price using Gemini Flash (Stable)
  */
 export const getStockEstimate = async (symbol: string): Promise<number | null> => {
   if (!ai) return null;
 
   try {
+    // Using 'gemini-flash-latest' for better quota management than preview models
     const response: GenerateContentResponse = await runWithRetry(() => ai!.models.generateContent({
-      model: "gemini-3-flash-preview",
+      model: "gemini-flash-latest",
       contents: `What is the approximate current stock price of ${symbol}? Return JSON only.`,
       config: {
         responseMimeType: "application/json",
@@ -95,7 +96,7 @@ export const getStockEstimate = async (symbol: string): Promise<number | null> =
 };
 
 /**
- * Analyze financial statement image using Gemini 3 Flash
+ * Analyze financial statement image using Gemini Flash (Stable)
  */
 export const parseFinancialStatement = async (base64Data: string): Promise<ScannedAsset[] | null> => {
   if (!ai) return null;
@@ -110,8 +111,9 @@ export const parseFinancialStatement = async (base64Data: string): Promise<Scann
       Return as a JSON array.
     `;
 
+    // Using 'gemini-flash-latest' for better quota management
     const response: GenerateContentResponse = await runWithRetry(() => ai!.models.generateContent({
-      model: "gemini-3-flash-preview",
+      model: "gemini-flash-latest",
       contents: {
         parts: [
           {
@@ -162,7 +164,7 @@ export const parseFinancialStatement = async (base64Data: string): Promise<Scann
   } catch (error: any) {
     console.error("Critical AI Error:", error);
     if (JSON.stringify(error).includes("RESOURCE_EXHAUSTED")) {
-        alert("⚠️ Gemini AI 請求過多 (429)。系統正在重試，請稍候再試。");
+        alert("⚠️ Gemini AI 配額已滿 (429)。系統正在重試，請稍候再試。");
     }
     return null;
   }

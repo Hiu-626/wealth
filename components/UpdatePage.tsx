@@ -2,18 +2,68 @@ import React, { useState, useRef } from 'react';
 import { Account, AccountType, Currency } from '../types';
 import { 
   Save, Plus, Loader2, TrendingUp, Building2, 
-  Minus, ScanLine, CloudUpload, History, Sparkles, X, Trash2, CheckCircle2 
+  Minus, ScanLine, CloudUpload, History, Sparkles, X, Trash2, CheckCircle2, Globe2,
+  ChevronRight, ArrowUpRight, Wallet
 } from 'lucide-react';
 import { getStockEstimate, parseFinancialStatement, ScannedAsset } from '../services/geminiService';
 import Confetti from './Confetti';
 
 // 你的 Google Apps Script URL
-const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbx7GhHej_A4WO8SqjyZjINbkVkWZJBhTEXrE7VjPuUYQ7qX6AzNwoytF8vjlYgYxOk68Q/exec';
+const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyQ303l6RRA3xMueTtntWEQmMw0S8qAEMvS63Iy4VjaXIokfxrfEiKp494UE84NmObx-A/exec';
 
 interface UpdatePageProps {
   accounts: Account[];
   onSave: (updatedAccounts: Account[]) => void;
 }
+
+// --- 成功同步後的摘要彈窗 ---
+const SyncSuccessModal = ({ isOpen, onClose, data }: { isOpen: boolean, onClose: () => void, data: any }) => {
+  if (!isOpen) return null;
+  return (
+    <div className="fixed inset-0 bg-black/70 flex items-center justify-center p-6 z-[200] backdrop-blur-lg animate-in fade-in">
+      <div className="bg-white w-full max-w-sm rounded-[3rem] overflow-hidden shadow-2xl animate-in zoom-in-95 duration-300">
+        <div className="bg-gradient-to-br from-blue-600 to-blue-400 p-8 text-white text-center relative">
+          <div className="absolute top-6 right-6 opacity-20"><Sparkles size={40}/></div>
+          <div className="bg-white/20 w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-4 border border-white/30">
+            <CheckCircle2 size={40} />
+          </div>
+          <h3 className="text-2xl font-black italic tracking-tighter">SYNC COMPLETE!</h3>
+          <p className="text-blue-100 text-xs font-bold uppercase tracking-widest mt-1">Cloud Database Updated</p>
+        </div>
+        
+        <div className="p-8 space-y-6">
+          <div className="flex justify-between items-center p-4 bg-gray-50 rounded-2xl border border-gray-100">
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-blue-100 text-blue-600 rounded-lg"><Wallet size={18}/></div>
+              <span className="text-xs font-black text-gray-400">TOTAL NET WORTH</span>
+            </div>
+            <div className="text-right">
+              <div className="text-xl font-black text-gray-800">HK${Math.round(data.totalNetWorth).toLocaleString()}</div>
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            <div className="flex justify-between text-sm border-b border-dashed pb-2">
+              <span className="font-bold text-gray-400">Assets Synced</span>
+              <span className="font-black text-blue-600">{data.count} Items</span>
+            </div>
+            <div className="flex justify-between text-sm">
+              <span className="font-bold text-gray-400">Status</span>
+              <span className="font-black text-green-500 flex items-center gap-1">LIVE <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"/></span>
+            </div>
+          </div>
+
+          <button 
+            onClick={onClose}
+            className="w-full py-5 bg-gray-900 text-white rounded-[2rem] font-black text-lg active:scale-95 transition-all shadow-lg"
+          >
+            AWESOME
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 const UpdatePage: React.FC<UpdatePageProps> = ({ accounts, onSave }) => {
   const [activeTab, setActiveTab] = useState<'MANUAL' | 'AI_SCANNER'>('MANUAL');
@@ -21,7 +71,10 @@ const UpdatePage: React.FC<UpdatePageProps> = ({ accounts, onSave }) => {
   const [isSaving, setIsSaving] = useState(false);
   const [localAccounts, setLocalAccounts] = useState<Account[]>([...accounts]);
   
+  // 彈窗控制
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isSuccessModalOpen, setIsSuccessModalOpen] = useState(false);
+  const [syncSummary, setSyncSummary] = useState({ totalNetWorth: 0, count: 0 });
   const [newAssetType, setNewAssetType] = useState<AccountType | null>(null);
   const [newItemData, setNewItemData] = useState({ name: '', symbol: '', amount: '' });
   
@@ -29,66 +82,84 @@ const UpdatePage: React.FC<UpdatePageProps> = ({ accounts, onSave }) => {
   const [scannedItems, setScannedItems] = useState<ScannedAsset[]>([]);
   const aiInputRef = useRef<HTMLInputElement>(null);
 
-  // --- 核心儲存與數據回流同步 ---
+  // --- 處理市場後綴與幣別的統一邏輯 ---
+  const getUpdatedSymbolInfo = (baseSymbol: string, suffix: '.HK' | '.AX' | 'US') => {
+    let cleanSymbol = baseSymbol.split('.')[0] || '';
+    if (suffix === 'US') {
+      return { symbol: cleanSymbol, currency: 'USD' };
+    } else {
+      if (suffix === '.HK' && /^\d+$/.test(cleanSymbol)) cleanSymbol = cleanSymbol.padStart(5, '0');
+      return { 
+        symbol: `${cleanSymbol}${suffix}`, 
+        currency: suffix === '.HK' ? 'HKD' : 'AUD' 
+      };
+    }
+  };
+
+  const applyGlobalMarket = (suffix: '.HK' | '.AX' | 'US') => {
+    setScannedItems(prev => prev.map(item => 
+      item.category === 'STOCK' ? { ...item, ...getUpdatedSymbolInfo(item.symbol || '', suffix) } : item
+    ));
+  };
+
+  const updateMarketSuffix = (index: number, suffix: '.HK' | '.AX' | 'US') => {
+    const updated = [...scannedItems];
+    const info = getUpdatedSymbolInfo(updated[index].symbol || '', suffix);
+    updated[index] = { ...updated[index], symbol: info.symbol, currency: info.currency };
+    setScannedItems(updated);
+  };
+
+  const updateScannedItem = (index: number, field: keyof ScannedAsset, value: any) => {
+    const updated = [...scannedItems];
+    updated[index] = { ...updated[index], [field]: value };
+    setScannedItems(updated);
+  };
+
+  // --- 儲存與同步 ---
   const handleFinalSave = async (updatedLocalAccounts: Account[]) => {
     setIsSaving(true);
     try {
-      if (GOOGLE_SCRIPT_URL && GOOGLE_SCRIPT_URL.includes('/exec')) {
-        const payload = {
-          assets: updatedLocalAccounts.map(acc => {
-            let market = "US";
-            if (acc.symbol?.toUpperCase().endsWith(".HK")) market = "HK";
-            if (acc.symbol?.toUpperCase().endsWith(".AX")) market = "AU";
-            return {
-              category: acc.type === AccountType.STOCK ? 'STOCK' : 'CASH',
-              institution: acc.name,
-              symbol: acc.symbol || '',
-              amount: acc.type === AccountType.STOCK ? acc.quantity : acc.balance,
-              currency: acc.currency,
-              market: market 
-            };
-          })
-        };
-        
-        const response = await fetch(GOOGLE_SCRIPT_URL, { 
-          method: 'POST', 
-          headers: { 'Content-Type': 'text/plain' },
-          body: JSON.stringify(payload) 
+      const payload = {
+        assets: updatedLocalAccounts.map(acc => ({
+          category: acc.type === AccountType.STOCK ? 'STOCK' : 'CASH',
+          institution: acc.name,
+          symbol: acc.symbol || '',
+          amount: acc.type === AccountType.STOCK ? acc.quantity : acc.balance,
+          currency: acc.currency,
+          market: acc.symbol?.endsWith(".HK") ? "HK" : (acc.symbol?.endsWith(".AX") ? "AU" : "US")
+        }))
+      };
+      
+      const response = await fetch(GOOGLE_SCRIPT_URL, { 
+        method: 'POST', 
+        headers: { 'Content-Type': 'text/plain' },
+        body: JSON.stringify(payload) 
+      });
+
+      const result = await response.json();
+      if (result.status === "Success") {
+        setShowConfetti(true);
+        setSyncSummary({ 
+          totalNetWorth: result.totalNetWorth, 
+          count: updatedLocalAccounts.length 
         });
+        setIsSuccessModalOpen(true);
 
-        const result = await response.json();
-        if (result.status === "Success") {
-          setShowConfetti(true);
-          const syncedAccounts = updatedLocalAccounts.map(acc => {
-            if (acc.type === AccountType.STOCK && acc.symbol && result.latestPrices?.[acc.symbol]) {
-              const cloudPrice = result.latestPrices[acc.symbol];
-              return { ...acc, lastPrice: cloudPrice, balance: Math.round((acc.quantity || 0) * cloudPrice) };
-            }
-            return acc;
-          });
-          setLocalAccounts(syncedAccounts);
-          onSave(syncedAccounts);
-          alert(`🚀 同步成功！\n雲端總淨值：HK$${Math.round(result.totalNetWorth).toLocaleString()}`);
-        }
+        const syncedAccounts = updatedLocalAccounts.map(acc => {
+          if (acc.type === AccountType.STOCK && acc.symbol && result.latestPrices?.[acc.symbol]) {
+            const cloudPrice = result.latestPrices[acc.symbol];
+            return { ...acc, lastPrice: cloudPrice, balance: Math.round((acc.quantity || 0) * cloudPrice) };
+          }
+          return acc;
+        });
+        setLocalAccounts(syncedAccounts);
+        onSave(syncedAccounts);
       }
-    } catch (e) { console.error(e); alert("同步失敗"); }
-    setIsSaving(false);
-  };
-
-  // --- 手動修改 AI 結果中的市場後綴 ---
-  const updateMarketSuffix = (index: number, suffix: '.HK' | '.AX' | 'US') => {
-    const updated = [...scannedItems];
-    let baseSymbol = updated[index].symbol?.split('.')[0] || '';
-    
-    if (suffix === 'US') {
-      updated[index].symbol = baseSymbol;
-      updated[index].currency = 'USD';
-    } else {
-      if (suffix === '.HK' && /^\d+$/.test(baseSymbol)) baseSymbol = baseSymbol.padStart(5, '0');
-      updated[index].symbol = `${baseSymbol}${suffix}`;
-      updated[index].currency = suffix === '.HK' ? 'HKD' : 'AUD';
+    } catch (e) { 
+      console.error(e); 
+      alert("Sync Failed. Please check internet connection."); 
     }
-    setScannedItems(updated);
+    setIsSaving(false);
   };
 
   const handleAISyncConfirm = async () => {
@@ -97,6 +168,8 @@ const UpdatePage: React.FC<UpdatePageProps> = ({ accounts, onSave }) => {
       let finalSymbol = item.symbol?.toUpperCase().trim() || '';
       let price = 0;
       if (item.category === 'STOCK' && finalSymbol) {
+        // 如果是 1-4 位數字，自動補齊香港後綴
+        if (/^\d{1,4}$/.test(finalSymbol)) finalSymbol = finalSymbol.padStart(5, '0') + '.HK';
         price = await getStockEstimate(finalSymbol) || 0;
       }
       return {
@@ -114,12 +187,6 @@ const UpdatePage: React.FC<UpdatePageProps> = ({ accounts, onSave }) => {
     setLocalAccounts(finalAccounts);
     setScannedItems([]); 
     await handleFinalSave(finalAccounts);
-  };
-
-  const updateScannedItem = (index: number, field: keyof ScannedAsset, value: any) => {
-    const updated = [...scannedItems];
-    updated[index] = { ...updated[index], [field]: value };
-    setScannedItems(updated);
   };
 
   const handleAddAsset = async () => {
@@ -141,8 +208,8 @@ const UpdatePage: React.FC<UpdatePageProps> = ({ accounts, onSave }) => {
       balance: newAssetType === AccountType.STOCK ? Math.round(parseFloat(newItemData.amount) * price) : parseFloat(newItemData.amount),
       lastPrice: price
     };
-    const newAccountsList = [...localAccounts, newAcc];
-    setLocalAccounts(newAccountsList);
+    const updated = [...localAccounts, newAcc];
+    setLocalAccounts(updated);
     setIsModalOpen(false);
     setNewItemData({ name: '', symbol: '', amount: '' });
     setIsSaving(false);
@@ -165,6 +232,12 @@ const UpdatePage: React.FC<UpdatePageProps> = ({ accounts, onSave }) => {
   return (
     <div className="p-6 pb-32 space-y-6 bg-gray-50 min-h-screen">
       <Confetti active={showConfetti} onComplete={() => setShowConfetti(false)} />
+      
+      <SyncSuccessModal 
+        isOpen={isSuccessModalOpen} 
+        onClose={() => setIsSuccessModalOpen(false)} 
+        data={syncSummary} 
+      />
 
       <div className="bg-gray-200 p-1 rounded-2xl flex shadow-inner">
         <button onClick={() => setActiveTab('MANUAL')} className={`flex-1 py-3 rounded-xl text-sm font-black transition-all ${activeTab === 'MANUAL' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500'}`}>MANUAL</button>
@@ -239,49 +312,64 @@ const UpdatePage: React.FC<UpdatePageProps> = ({ accounts, onSave }) => {
           <div onClick={() => !isAnalyzing && aiInputRef.current?.click()} className={`border-2 border-dashed rounded-[2.5rem] p-16 text-center transition-all ${isAnalyzing ? 'border-blue-300 bg-blue-50' : 'border-gray-300 hover:border-blue-400 bg-white cursor-pointer'}`}>
             <input type="file" ref={aiInputRef} className="hidden" accept="image/*" onChange={handleAIFileUpload} />
             {isAnalyzing ? (
-              <div className="flex flex-col items-center"><Loader2 className="w-12 h-12 text-blue-600 animate-spin" /><p className="mt-4 font-black text-blue-600">ANALYZING...</p></div>
+              <div className="flex flex-col items-center"><Loader2 className="w-12 h-12 text-blue-600 animate-spin" /><p className="mt-4 font-black text-blue-600 uppercase tracking-widest">Analyzing Statement...</p></div>
             ) : (
-              <div className="flex flex-col items-center"><ScanLine className="w-16 h-16 text-gray-200 mb-4" /><p className="font-black text-gray-700">SCAN STATEMENT</p></div>
+              <div className="flex flex-col items-center"><ScanLine className="w-16 h-16 text-gray-200 mb-4" /><p className="font-black text-gray-700">SCAN DOCUMENT</p></div>
             )}
           </div>
 
           {scannedItems.length > 0 && (
             <div className="bg-white rounded-[2.5rem] shadow-2xl border overflow-hidden mb-24">
-              <div className="p-6 bg-blue-600 text-white flex justify-between items-center font-black italic"><Sparkles size={20}/> AI ANALYSIS RESULT</div>
-              <div className="p-4 space-y-4 max-h-[45vh] overflow-y-auto bg-gray-50">
+              <div className="p-6 bg-blue-600 text-white space-y-4">
+                <div className="flex justify-between items-center font-black italic">
+                   <div className="flex items-center gap-2"><Sparkles size={20}/> AI ANALYSIS RESULT</div>
+                </div>
+                <div className="bg-blue-700/50 p-3 rounded-2xl flex items-center justify-between gap-3">
+                  <div className="text-[10px] font-black flex items-center gap-1"><Globe2 size={12}/> SET ALL:</div>
+                  <div className="flex gap-2">
+                    {(['.HK', '.AX', 'US'] as const).map(suffix => (
+                      <button 
+                        key={suffix}
+                        onClick={() => applyGlobalMarket(suffix)}
+                        className="bg-white/20 hover:bg-white text-white hover:text-blue-600 px-4 py-1.5 rounded-xl text-xs font-black transition-all"
+                      >
+                        {suffix}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              <div className="p-4 space-y-4 max-h-[40vh] overflow-y-auto bg-gray-50">
                 {scannedItems.map((item, idx) => (
-                  <div key={idx} className="bg-white p-5 rounded-2xl shadow-sm space-y-4">
+                  <div key={idx} className="bg-white p-5 rounded-2xl shadow-sm space-y-4 border border-gray-100">
                     <div className="grid grid-cols-2 gap-4 text-xs font-black">
                       <div className="space-y-1">
-                        <label className="text-gray-400 uppercase">Institution</label>
-                        <input className="w-full bg-gray-50 p-2 rounded-lg" value={item.institution} onChange={(e) => updateScannedItem(idx, 'institution', e.target.value)} />
+                        <label className="text-gray-400 uppercase tracking-tighter">Institution</label>
+                        <input className="w-full bg-gray-50 p-2 rounded-lg outline-none focus:ring-1 ring-blue-500" value={item.institution} onChange={(e) => updateScannedItem(idx, 'institution', e.target.value)} />
                       </div>
                       <div className="space-y-1">
-                        <label className="text-blue-400 uppercase">Symbol / Amount</label>
+                        <label className="text-blue-400 uppercase tracking-tighter">Symbol / Qty</label>
                         <div className="flex gap-2">
-                          <input className="w-full bg-blue-50 p-2 rounded-lg text-blue-600" value={item.symbol || ''} onChange={(e) => updateScannedItem(idx, 'symbol', e.target.value)} />
-                          <input className="w-20 bg-gray-50 p-2 rounded-lg" type="number" value={item.amount} onChange={(e) => updateScannedItem(idx, 'amount', parseFloat(e.target.value)||0)} />
+                          <input className="w-full bg-blue-50 p-2 rounded-lg text-blue-600 outline-none" value={item.symbol || ''} onChange={(e) => updateScannedItem(idx, 'symbol', e.target.value)} />
+                          <input className="w-16 bg-gray-50 p-2 rounded-lg text-center" type="number" value={item.amount} onChange={(e) => updateScannedItem(idx, 'amount', parseFloat(e.target.value)||0)} />
                         </div>
                       </div>
                     </div>
                     {item.category === 'STOCK' && (
-                      <div className="flex items-center gap-2 pt-1">
-                        <span className="text-[10px] font-black text-gray-400 mr-1 uppercase">Market:</span>
-                        {[ 
-                          { label: '.HK', suffix: '.HK' as const }, 
-                          { label: '.AX', suffix: '.AX' as const }, 
-                          { label: 'US', suffix: 'US' as const } 
-                        ].map((m) => (
+                      <div className="flex items-center gap-2 border-t pt-3">
+                        <span className="text-[9px] font-black text-gray-300 uppercase">Modify:</span>
+                        {(['.HK', '.AX', 'US'] as const).map((m) => (
                           <button
-                            key={m.label}
-                            onClick={() => updateMarketSuffix(idx, m.suffix)}
+                            key={m}
+                            onClick={() => updateMarketSuffix(idx, m)}
                             className={`px-3 py-1 rounded-full text-[10px] font-black transition-all ${
-                              (m.suffix === 'US' && !item.symbol?.includes('.')) || (item.symbol?.endsWith(m.suffix))
-                              ? 'bg-blue-600 text-white shadow-md' 
-                              : 'bg-gray-100 text-gray-400 hover:bg-gray-200'
+                              (m === 'US' && !item.symbol?.includes('.')) || (item.symbol?.endsWith(m))
+                              ? 'bg-blue-600 text-white' 
+                              : 'bg-gray-100 text-gray-400'
                             }`}
                           >
-                            {m.label}
+                            {m}
                           </button>
                         ))}
                         <span className="ml-auto text-[10px] font-black text-blue-500 bg-blue-50 px-2 py-1 rounded-md">{item.currency}</span>
@@ -290,20 +378,16 @@ const UpdatePage: React.FC<UpdatePageProps> = ({ accounts, onSave }) => {
                   </div>
                 ))}
               </div>
-              <div className="p-6 bg-white border-t flex gap-3">
-                 <button 
-                    onClick={() => setScannedItems([])} 
-                    className="py-5 px-6 bg-red-50 text-red-500 rounded-[1.5rem] font-black flex justify-center items-center gap-2 active:scale-95 transition-all hover:bg-red-100"
-                 >
-                    <X size={20} /> CANCEL
-                 </button>
-                 <button 
-                    onClick={handleAISyncConfirm} 
-                    disabled={isSaving} 
-                    className="flex-1 py-5 bg-blue-600 text-white rounded-[1.5rem] font-black flex justify-center items-center gap-3 active:scale-95 transition-all shadow-xl shadow-blue-200"
-                 >
-                    {isSaving ? <Loader2 className="animate-spin" /> : <CheckCircle2 size={24} />} CONFIRM & SYNC
-                 </button>
+
+              <div className="p-6 bg-white border-t">
+                <button 
+                  onClick={handleAISyncConfirm} 
+                  disabled={isSaving} 
+                  className="w-full py-5 bg-blue-600 text-white rounded-[1.5rem] font-black flex justify-center items-center gap-3 active:scale-95 transition-all shadow-xl disabled:bg-gray-400"
+                >
+                  {isSaving ? <Loader2 className="animate-spin" /> : <CheckCircle2 size={24} />} 
+                  {isSaving ? 'UPDATING...' : 'CONFIRM & ADD TO LIST'}
+                </button>
               </div>
             </div>
           )}
