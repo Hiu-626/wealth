@@ -1,59 +1,104 @@
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import { GoogleGenAI, Type } from "@google/genai";
 
-// 確保 Vite 能讀到 Key
-const API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
-const genAI = API_KEY ? new GoogleGenerativeAI(API_KEY) : null;
+// Use process.env.API_KEY as required by guidelines
+const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 export interface ScannedAsset {
   category: 'CASH' | 'STOCK';
   institution: string;
   symbol?: string;
-  amount: number;
+  amount: number; // Balance for Cash, Quantity for Stock
   currency: string;
+  metadata?: any;
 }
 
-// 1. 估算股價
+/**
+ * Estimate stock price using Gemini 3 Flash
+ */
 export const getStockEstimate = async (symbol: string): Promise<number | null> => {
-  if (!genAI) {
-    console.error("API Key missing");
-    return null;
-  }
   try {
-    // 統一改用 gemini-1.5-flash，這是目前最穩定的 Endpoint 名稱
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-    const result = await model.generateContent(`Current price of ${symbol}? Return ONLY JSON: {"price": 123.4}`);
-    const response = await result.response;
-    const text = response.text().replace(/```json|```/g, "").trim();
+    const response = await ai.models.generateContent({
+      model: "gemini-3-flash-preview",
+      contents: `What is the approximate current stock price of ${symbol}?`,
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            price: { type: Type.NUMBER, description: "The stock price." }
+          }
+        }
+      }
+    });
+
+    const text = response.text;
+    if (!text) return null;
     const data = JSON.parse(text);
-    return data.price || null;
-  } catch (e) {
-    console.error("Stock API Error:", e);
+    return typeof data.price === 'number' ? data.price : null;
+  } catch (error) {
+    console.error("Error fetching stock estimate:", error);
     return null;
   }
 };
 
-// 2. AI 掃描單據
+/**
+ * Analyze financial statement image using Gemini 3 Flash
+ */
 export const parseFinancialStatement = async (base64Data: string): Promise<ScannedAsset[] | null> => {
-  if (!genAI) {
-    console.error("API Key missing");
-    return null;
-  }
   try {
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-    const prompt = `Extract assets from this image into JSON list: [{"category": "CASH"|"STOCK", "institution": "name", "symbol": "ticker", "amount": number, "currency": "HKD"}]. For stocks, amount is quantity.`;
+    const prompt = `
+      Analyze this financial statement image. Extract asset details.
+      Identify bank accounts (CASH) and stock positions (STOCK).
+      
+      Rules:
+      1. For STOCK, 'amount' must be the QUANTITY/SHARES held, NOT the value.
+      2. For CASH, 'amount' is the BALANCE.
+      3. If currency is not clear, infer from context.
+    `;
 
-    const result = await model.generateContent([
-      { inlineData: { mimeType: "image/jpeg", data: base64Data } },
-      { text: prompt }
-    ]);
+    const response = await ai.models.generateContent({
+      model: "gemini-3-flash-preview",
+      contents: {
+        parts: [
+          {
+            inlineData: {
+              mimeType: "image/jpeg",
+              data: base64Data
+            }
+          },
+          { text: prompt }
+        ]
+      },
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.ARRAY,
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              category: { 
+                type: Type.STRING, 
+                description: "Must be 'CASH' or 'STOCK'" 
+              },
+              institution: { type: Type.STRING },
+              symbol: { type: Type.STRING },
+              amount: { type: Type.NUMBER },
+              currency: { 
+                type: Type.STRING,
+                description: "Currency code like HKD, USD, AUD"
+              }
+            },
+            required: ["category", "institution", "amount", "currency"]
+          }
+        }
+      }
+    });
 
-    const response = await result.response;
-    const text = response.text();
-    // 增加過濾：確保 JSON 解析不會因為 Markdown 標籤失敗
-    const cleanJson = text.replace(/```json|```/g, "").trim();
-    return JSON.parse(cleanJson);
-  } catch (e) {
-    console.error("AI Analysis Error:", e);
+    const text = response.text;
+    if (!text) return null;
+    return JSON.parse(text) as ScannedAsset[];
+  } catch (error) {
+    console.error("Error parsing financial statement:", error);
     return null;
   }
 };

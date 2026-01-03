@@ -8,7 +8,7 @@ import { getStockEstimate, parseFinancialStatement, ScannedAsset } from '../serv
 import Confetti from './Confetti';
 
 // 你的 Google Apps Script URL (如果有的話)
-const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbw2sgqsu0u5qBZYzrPvW_UEQVREUR8NBi2kIY1JfCCDPGpIWJwCgFNvdNzrj4xyXTAJHw/exec';
+const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbz5Xc31Ste3M1Dxcxe6a03KOVvuJiHrMM_Z0-9aZijry3QOn7Ww8_xlHb2GCfzAGEEbPA/exec';
 
 interface UpdatePageProps {
   accounts: Account[];
@@ -114,7 +114,8 @@ const UpdatePage: React.FC<UpdatePageProps> = ({ accounts, onSave }) => {
     const reader = new FileReader();
     reader.onloadend = async () => {
       const base64 = (reader.result as string).split(',')[1];
-      const results = await parseFinancialStatement(base64, true);
+      // Changed: Removed the second 'true' argument to match updated signature
+      const results = await parseFinancialStatement(base64);
       if (results) setScannedItems(results);
       setIsAnalyzing(false);
     };
