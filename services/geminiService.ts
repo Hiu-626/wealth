@@ -1,7 +1,38 @@
-import { GoogleGenAI, Type } from "@google/genai";
+import { GoogleGenAI, Type, GenerateContentResponse } from "@google/genai";
 
-// Use process.env.API_KEY as required by guidelines
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+// Retrieve API Key safely. 
+// Vercel/Vite uses import.meta.env.VITE_GEMINI_API_KEY.
+// process.env.API_KEY is kept for compatibility if defined.
+const getApiKey = (): string | undefined => {
+  let key: string | undefined;
+  
+  // Try Vite env (Standard for Vercel Vite deployments)
+  try {
+    // @ts-ignore
+    if (typeof import.meta !== 'undefined' && import.meta.env) {
+      // @ts-ignore
+      key = import.meta.env.VITE_GEMINI_API_KEY;
+    }
+  } catch {}
+
+  // Try process.env if not found (Node/Standard fallback)
+  if (!key) {
+    try {
+      if (typeof process !== 'undefined' && process.env) {
+        key = process.env.API_KEY;
+      }
+    } catch {}
+  }
+  return key;
+};
+
+const apiKey = getApiKey();
+// Initialize only if key exists to prevent "An API Key must be set" error
+const ai = apiKey ? new GoogleGenAI({ apiKey }) : null;
+
+if (!ai) {
+  console.warn("WealthSnapshot: Gemini API Key is missing. AI features will be disabled. Check VITE_GEMINI_API_KEY in Vercel.");
+}
 
 export interface ScannedAsset {
   category: 'CASH' | 'STOCK';
@@ -13,11 +44,39 @@ export interface ScannedAsset {
 }
 
 /**
+ * Helper to retry functions on 429 (Rate Limit) errors
+ */
+const runWithRetry = async <T>(fn: () => Promise<T>, retries = 3, delay = 2000): Promise<T> => {
+  try {
+    return await fn();
+  } catch (error: any) {
+    const errString = JSON.stringify(error);
+    const isQuotaError = 
+      error?.status === 429 || 
+      error?.code === 429 || 
+      errString.includes("RESOURCE_EXHAUSTED") ||
+      errString.includes("429");
+
+    if (isQuotaError && retries > 0) {
+      console.warn(`Gemini API Quota Hit (429). Retrying in ${delay}ms... (${retries} retries left)`);
+      await new Promise(resolve => setTimeout(resolve, delay));
+      return runWithRetry(fn, retries - 1, delay * 2);
+    }
+    throw error;
+  }
+};
+
+/**
  * Estimate stock price using Gemini 3 Flash
  */
 export const getStockEstimate = async (symbol: string): Promise<number | null> => {
+  if (!ai) {
+    console.warn("Gemini API not initialized (Missing API Key)");
+    return null;
+  }
+
   try {
-    const response = await ai.models.generateContent({
+    const response: GenerateContentResponse = await runWithRetry(() => ai!.models.generateContent({
       model: "gemini-3-flash-preview",
       contents: `What is the approximate current stock price of ${symbol}?`,
       config: {
@@ -29,7 +88,7 @@ export const getStockEstimate = async (symbol: string): Promise<number | null> =
           }
         }
       }
-    });
+    }));
 
     const text = response.text;
     if (!text) return null;
@@ -45,6 +104,11 @@ export const getStockEstimate = async (symbol: string): Promise<number | null> =
  * Analyze financial statement image using Gemini 3 Flash
  */
 export const parseFinancialStatement = async (base64Data: string): Promise<ScannedAsset[] | null> => {
+  if (!ai) {
+    console.warn("Gemini API not initialized (Missing API Key)");
+    return null;
+  }
+
   try {
     const prompt = `
       Analyze this financial statement image. Extract asset details.
@@ -56,7 +120,7 @@ export const parseFinancialStatement = async (base64Data: string): Promise<Scann
       3. If currency is not clear, infer from context.
     `;
 
-    const response = await ai.models.generateContent({
+    const response: GenerateContentResponse = await runWithRetry(() => ai!.models.generateContent({
       model: "gemini-3-flash-preview",
       contents: {
         parts: [
@@ -92,13 +156,16 @@ export const parseFinancialStatement = async (base64Data: string): Promise<Scann
           }
         }
       }
-    });
+    }));
 
     const text = response.text;
     if (!text) return null;
     return JSON.parse(text) as ScannedAsset[];
   } catch (error) {
     console.error("Error parsing financial statement:", error);
+    if (JSON.stringify(error).includes("RESOURCE_EXHAUSTED")) {
+      alert("⚠️ Gemini AI usage limit reached (429). Please try again in a few moments.");
+    }
     return null;
   }
 };
