@@ -7,8 +7,8 @@ import {
 import { getStockEstimate, parseFinancialStatement, ScannedAsset } from '../services/geminiService';
 import Confetti from './Confetti';
 
-// 你的 Google Apps Script URL (請確保已部署為「任何人」可存取)
-const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxAKxDbGWBdovJChJHU_nbYDqSys5KWaCZ6T_A7VpVfCDkL6T5tn3thMaZ_gfJxlmyApA/exec';
+// 你的 Google Apps Script URL
+const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbx7GhHej_A4WO8SqjyZjINbkVkWZJBhTEXrE7VjPuUYQ7qX6AzNwoytF8vjlYgYxOk68Q/exec';
 
 interface UpdatePageProps {
   accounts: Account[];
@@ -21,17 +21,15 @@ const UpdatePage: React.FC<UpdatePageProps> = ({ accounts, onSave }) => {
   const [isSaving, setIsSaving] = useState(false);
   const [localAccounts, setLocalAccounts] = useState<Account[]>([...accounts]);
   
-  // Modal & Edit State
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [newAssetType, setNewAssetType] = useState<AccountType | null>(null);
   const [newItemData, setNewItemData] = useState({ name: '', symbol: '', amount: '' });
   
-  // AI Scanner State
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [scannedItems, setScannedItems] = useState<ScannedAsset[]>([]);
   const aiInputRef = useRef<HTMLInputElement>(null);
 
-  // --- 1. 核心儲存與雲端同步 (支援港/美/澳三地與數據回傳) ---
+  // --- 核心儲存與數據回流同步 ---
   const handleFinalSave = async (updatedLocalAccounts: Account[]) => {
     setIsSaving(true);
     let feedbackMessage = "本地數據已更新。";
@@ -40,7 +38,6 @@ const UpdatePage: React.FC<UpdatePageProps> = ({ accounts, onSave }) => {
       if (GOOGLE_SCRIPT_URL && GOOGLE_SCRIPT_URL.includes('/exec')) {
         const payload = {
           assets: updatedLocalAccounts.map(acc => {
-            // 自動判定市場標籤傳給 Google Sheet B 欄
             let market = "US";
             if (acc.symbol?.toUpperCase().endsWith(".HK")) market = "HK";
             if (acc.symbol?.toUpperCase().endsWith(".AX")) market = "AU";
@@ -56,7 +53,6 @@ const UpdatePage: React.FC<UpdatePageProps> = ({ accounts, onSave }) => {
           })
         };
         
-        // 呼叫 Google Script 並採用 text/plain 繞過 CORS
         const response = await fetch(GOOGLE_SCRIPT_URL, { 
           method: 'POST', 
           headers: { 'Content-Type': 'text/plain' },
@@ -67,9 +63,28 @@ const UpdatePage: React.FC<UpdatePageProps> = ({ accounts, onSave }) => {
 
         if (result.status === "Success") {
           setShowConfetti(true);
+          
+          // 【回傳修改點】：利用 Google Sheet 回傳的最新市價更新本地資產
+          const syncedAccounts = updatedLocalAccounts.map(acc => {
+            if (acc.type === AccountType.STOCK && acc.symbol && result.latestPrices && result.latestPrices[acc.symbol]) {
+              const cloudPrice = result.latestPrices[acc.symbol];
+              return {
+                ...acc,
+                lastPrice: cloudPrice, // 更新 Market Est
+                balance: Math.round((acc.quantity || 0) * cloudPrice) // 重新計算市值
+              };
+            }
+            return acc;
+          });
+
+          // 更新本地 State 和父組件數據
+          setLocalAccounts(syncedAccounts);
+          onSave(syncedAccounts);
+
           const total = Math.round(result.totalNetWorth).toLocaleString();
-          const stock = Math.round(result.stockValue).toLocaleString();
-          feedbackMessage = `🚀 同步成功！\n\n根據 Google Finance 最新匯率與市價：\n總資產：HK$${total}\n股票市值：HK$${stock}\n\n你的財富正在穩步增長！`;
+          feedbackMessage = `🚀 同步成功！\n\n雲端已回傳最新 Google Finance 市價：\n當前總淨值：HK$${total}\n\n所有 Market Est 已按即時匯率校正。`;
+        } else {
+            feedbackMessage = `同步出錯: ${result.message}`;
         }
       }
     } catch (e) {
@@ -77,15 +92,10 @@ const UpdatePage: React.FC<UpdatePageProps> = ({ accounts, onSave }) => {
       feedbackMessage = "同步失敗。請檢查網絡或 Google Script 部署設定。";
     }
 
-    // 顯示滿足感彈窗
     alert(feedbackMessage);
-    
-    // 更新本地狀態並關閉 Loading
-    onSave(updatedLocalAccounts);
     setIsSaving(false);
   };
 
-  // --- 2. 手動功能：自動補全與計算 ---
   const handleAddAsset = async () => {
     if (!newAssetType) return;
     setIsSaving(true);
@@ -93,7 +103,6 @@ const UpdatePage: React.FC<UpdatePageProps> = ({ accounts, onSave }) => {
     let price = 0;
     let finalSymbol = newItemData.symbol.toUpperCase().trim();
     
-    // 港股代號補全 (例如輸入 5 -> 00005.HK)
     if (newAssetType === AccountType.STOCK && finalSymbol) {
       if (/^\d{1,4}$/.test(finalSymbol)) finalSymbol = finalSymbol.padStart(5, '0') + '.HK';
       try {
@@ -104,33 +113,33 @@ const UpdatePage: React.FC<UpdatePageProps> = ({ accounts, onSave }) => {
 
     const newAcc: Account = {
       id: Date.now().toString(),
-      name: newItemData.name || finalSymbol,
+      name: newItemData.name || (newAssetType === AccountType.STOCK ? finalSymbol : 'New Bank'),
       type: newAssetType,
-      currency: 'HKD' as Currency,
+      currency: (finalSymbol.endsWith('.AX') ? 'AUD' : (finalSymbol.includes('.') ? 'HKD' : 'USD')) as Currency,
       symbol: finalSymbol,
       quantity: newAssetType === AccountType.STOCK ? parseFloat(newItemData.amount) : undefined,
       balance: newAssetType === AccountType.STOCK ? Math.round(parseFloat(newItemData.amount) * price) : parseFloat(newItemData.amount),
       lastPrice: price
     };
 
-    setLocalAccounts(prev => [...prev, newAcc]);
+    const newAccountsList = [...localAccounts, newAcc];
+    setLocalAccounts(newAccountsList);
     setIsModalOpen(false);
     setNewItemData({ name: '', symbol: '', amount: '' });
     setIsSaving(false);
   };
 
   const handleDeleteAccount = (id: string, name: string) => {
-    if (window.confirm(`確定刪除「${name}」？這將影響你的資產總額。`)) {
-      setLocalAccounts(prev => prev.filter(acc => acc.id !== id));
+    if (window.confirm(`確定刪除「${name}」？`)) {
+      const updated = localAccounts.filter(acc => acc.id !== id);
+      setLocalAccounts(updated);
     }
   };
 
-  // --- 3. AI Scanner 功能 ---
   const handleAIFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     setIsAnalyzing(true);
-    
     const reader = new FileReader();
     reader.onloadend = async () => {
       const base64 = (reader.result as string).split(',')[1];
@@ -141,23 +150,15 @@ const UpdatePage: React.FC<UpdatePageProps> = ({ accounts, onSave }) => {
     reader.readAsDataURL(file);
   };
 
-  const updateScannedItem = (index: number, field: keyof ScannedAsset, value: any) => {
-    const updated = [...scannedItems];
-    updated[index] = { ...updated[index], [field]: value };
-    setScannedItems(updated);
-  };
-
   const handleAISyncConfirm = async () => {
     setIsSaving(true);
     const enriched = await Promise.all(scannedItems.map(async (item) => {
       let finalSymbol = item.symbol?.toUpperCase().trim() || '';
       if (/^\d{1,5}$/.test(finalSymbol)) finalSymbol = finalSymbol.padStart(5, '0') + '.HK';
-
       let price = 0;
       if (item.category === 'STOCK' && finalSymbol) {
         price = await getStockEstimate(finalSymbol) || 0;
       }
-
       return {
         id: Math.random().toString(36).substr(2, 9),
         name: item.institution,
@@ -169,39 +170,36 @@ const UpdatePage: React.FC<UpdatePageProps> = ({ accounts, onSave }) => {
         lastPrice: price
       };
     }));
-
     const finalAccounts = [...localAccounts, ...enriched];
     setLocalAccounts(finalAccounts);
     setScannedItems([]); 
-    handleFinalSave(finalAccounts);
+    await handleFinalSave(finalAccounts);
   };
 
   return (
-    <div className="p-6 pb-32 space-y-6 bg-gray-50 min-h-screen font-sans">
+    <div className="p-6 pb-32 space-y-6 bg-gray-50 min-h-screen">
       <Confetti active={showConfetti} onComplete={() => setShowConfetti(false)} />
 
-      {/* Tabs */}
       <div className="bg-gray-200 p-1 rounded-2xl flex shadow-inner">
         <button onClick={() => setActiveTab('MANUAL')} className={`flex-1 py-3 rounded-xl text-sm font-black transition-all ${activeTab === 'MANUAL' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500'}`}>MANUAL</button>
         <button onClick={() => setActiveTab('AI_SCANNER')} className={`flex-1 py-3 rounded-xl text-sm font-black transition-all ${activeTab === 'AI_SCANNER' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500'}`}>AI SCANNER</button>
       </div>
 
       {activeTab === 'MANUAL' ? (
-        <div className="space-y-8 animate-in fade-in slide-in-from-top-2">
-          {/* 現金部分 */}
+        <div className="space-y-8 animate-in fade-in">
           <section>
             <div className="flex justify-between items-center mb-4">
-              <h2 className="text-xs font-black text-gray-400 uppercase tracking-widest flex items-center"><Building2 className="w-4 h-4 mr-2" /> Bank Accounts</h2>
-              <button onClick={() => { setNewAssetType(AccountType.CASH); setIsModalOpen(true); }} className="bg-blue-50 text-blue-600 px-4 py-2 rounded-full text-xs font-bold flex items-center gap-1 active:scale-95 transition-all"><Plus size={14}/> Add Bank</button>
+              <h2 className="text-xs font-black text-gray-400 uppercase flex items-center"><Building2 className="w-4 h-4 mr-2" /> Bank Accounts</h2>
+              <button onClick={() => { setNewAssetType(AccountType.CASH); setIsModalOpen(true); }} className="bg-blue-50 text-blue-600 px-4 py-2 rounded-full text-xs font-bold flex items-center gap-1"><Plus size={14}/> Add Bank</button>
             </div>
             <div className="space-y-3">
               {localAccounts.filter(a => a.type === AccountType.CASH).map(acc => (
-                <div key={acc.id} className="bg-white p-5 rounded-[1.5rem] shadow-sm flex justify-between items-center border border-gray-100 group">
+                <div key={acc.id} className="bg-white p-5 rounded-[1.5rem] shadow-sm flex justify-between items-center border border-gray-100">
                   <div className="flex items-center gap-4">
-                    <button onClick={() => handleDeleteAccount(acc.id, acc.name)} className="p-2 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-full transition-all"><Trash2 size={18}/></button>
+                    <button onClick={() => handleDeleteAccount(acc.id, acc.name)} className="p-2 text-gray-300 hover:text-red-500"><Trash2 size={18}/></button>
                     <div className="font-bold text-gray-700">{acc.name}</div>
                   </div>
-                  <div className="flex items-center bg-gray-50 px-4 py-2 rounded-xl border border-gray-100">
+                  <div className="flex items-center bg-gray-50 px-4 py-2 rounded-xl">
                     <span className="text-gray-400 font-bold mr-1 text-xs">$</span>
                     <input type="number" value={acc.balance} onChange={(e) => setLocalAccounts(prev => prev.map(a => a.id === acc.id ? {...a, balance: parseFloat(e.target.value)||0} : a))} className="w-24 text-right font-black text-gray-800 bg-transparent outline-none" />
                   </div>
@@ -210,92 +208,73 @@ const UpdatePage: React.FC<UpdatePageProps> = ({ accounts, onSave }) => {
             </div>
           </section>
 
-          {/* 投資部分 */}
           <section>
             <div className="flex justify-between items-center mb-4">
-              <h2 className="text-xs font-black text-gray-400 uppercase tracking-widest flex items-center"><TrendingUp className="w-4 h-4 mr-2" /> Portfolio (HK/US/AU)</h2>
-              <button onClick={() => { setNewAssetType(AccountType.STOCK); setIsModalOpen(true); }} className="bg-blue-50 text-blue-600 px-4 py-2 rounded-full text-xs font-bold flex items-center gap-1 active:scale-95 transition-all"><Plus size={14}/> Add Stock</button>
+              <h2 className="text-xs font-black text-gray-400 uppercase flex items-center"><TrendingUp className="w-4 h-4 mr-2" /> Portfolio</h2>
+              <button onClick={() => { setNewAssetType(AccountType.STOCK); setIsModalOpen(true); }} className="bg-blue-50 text-blue-600 px-4 py-2 rounded-full text-xs font-bold flex items-center gap-1"><Plus size={14}/> Add Stock</button>
             </div>
             <div className="space-y-4">
               {localAccounts.filter(a => a.type === AccountType.STOCK).map(acc => (
-                <div key={acc.id} className="bg-white p-5 rounded-[1.5rem] shadow-sm border border-gray-100 relative transition-all">
+                <div key={acc.id} className="bg-white p-5 rounded-[1.5rem] shadow-sm border border-gray-100">
                   <div className="flex justify-between mb-4">
                     <div className="flex items-center gap-3">
-                      <button onClick={() => handleDeleteAccount(acc.id, acc.symbol || acc.name)} className="p-2 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-full transition-all"><Trash2 size={18}/></button>
+                      <button onClick={() => handleDeleteAccount(acc.id, acc.symbol || acc.name)} className="p-2 text-gray-300 hover:text-red-500"><Trash2 size={18}/></button>
                       <div>
                         <div className="font-black text-gray-800 text-lg">{acc.symbol}</div>
-                        <div className="text-[10px] text-gray-400 font-bold tracking-tighter uppercase">Market Est: ${acc.lastPrice}</div>
+                        <div className="text-[10px] text-blue-500 font-bold uppercase tracking-widest">Market Est: ${acc.lastPrice}</div>
                       </div>
                     </div>
                     <div className="text-right">
                       <div className="text-sm font-black text-blue-600">${(acc.balance || 0).toLocaleString()}</div>
-                      <div className="text-[10px] text-gray-400 uppercase font-bold tracking-widest">{acc.currency}</div>
+                      <div className="text-[10px] text-gray-400 font-bold tracking-widest">{acc.currency}</div>
                     </div>
                   </div>
                   <div className="flex items-center space-x-3 bg-gray-50 p-2 rounded-2xl">
-                    <button onClick={() => setLocalAccounts(prev => prev.map(a => a.id === acc.id ? {...a, quantity: Math.max(0, (a.quantity||0)-1), balance: Math.round(((a.quantity||0)-1)*(a.lastPrice||0))} : a))} className="w-12 h-12 bg-white rounded-xl shadow-sm flex items-center justify-center text-gray-400 hover:text-blue-600 transition-colors"><Minus size={20}/></button>
+                    <button onClick={() => setLocalAccounts(prev => prev.map(a => a.id === acc.id ? {...a, quantity: Math.max(0, (a.quantity||0)-1), balance: Math.round(((a.quantity||0)-1)*(a.lastPrice||0))} : a))} className="w-12 h-12 bg-white rounded-xl shadow-sm flex items-center justify-center text-gray-400"><Minus size={20}/></button>
                     <input type="number" value={acc.quantity} onChange={(e) => {
                       const q = parseFloat(e.target.value)||0;
                       setLocalAccounts(prev => prev.map(a => a.id === acc.id ? {...a, quantity: q, balance: Math.round(q*(a.lastPrice||0))} : a));
                     }} className="flex-1 text-center font-black bg-transparent outline-none text-gray-700 text-xl" />
-                    <button onClick={() => setLocalAccounts(prev => prev.map(a => a.id === acc.id ? {...a, quantity: (a.quantity||0)+1, balance: Math.round(((a.quantity||0)+1)*(a.lastPrice||0))} : a))} className="w-12 h-12 bg-white rounded-xl shadow-sm flex items-center justify-center text-gray-400 hover:text-blue-600 transition-colors"><Plus size={20}/></button>
+                    <button onClick={() => setLocalAccounts(prev => prev.map(a => a.id === acc.id ? {...a, quantity: (a.quantity||0)+1, balance: Math.round(((a.quantity||0)+1)*(a.lastPrice||0))} : a))} className="w-12 h-12 bg-white rounded-xl shadow-sm flex items-center justify-center text-gray-400"><Plus size={20}/></button>
                   </div>
                 </div>
               ))}
             </div>
           </section>
 
-          {/* 雲端同步大按鈕 */}
-          <button onClick={() => handleFinalSave(localAccounts)} disabled={isSaving} className="fixed bottom-28 left-6 right-6 bg-blue-600 text-white py-5 rounded-[2rem] font-black shadow-2xl shadow-blue-200 flex justify-center items-center gap-3 active:scale-95 transition-all disabled:bg-gray-400 z-30">
+          <button onClick={() => handleFinalSave(localAccounts)} disabled={isSaving} className="fixed bottom-28 left-6 right-6 bg-blue-600 text-white py-5 rounded-[2rem] font-black shadow-2xl flex justify-center items-center gap-3 active:scale-95 disabled:bg-gray-400 z-30 transition-all">
             {isSaving ? <Loader2 className="animate-spin" /> : <CloudUpload size={20} />} 
-            {isSaving ? 'SYNCING DATA...' : 'SAVE & SYNC CLOUD'}
+            {isSaving ? 'SYNCING...' : 'SAVE & SYNC CLOUD'}
           </button>
         </div>
       ) : (
-        /* AI Scanner 部分 */
+        /* AI Scanner UI */
         <div className="space-y-6 animate-in slide-in-from-bottom-4">
-          <div onClick={() => !isAnalyzing && aiInputRef.current?.click()} className={`border-2 border-dashed rounded-[2.5rem] p-16 text-center transition-all ${isAnalyzing ? 'border-blue-300 bg-blue-50' : 'border-gray-300 hover:border-blue-400 cursor-pointer bg-white'}`}>
+          <div onClick={() => !isAnalyzing && aiInputRef.current?.click()} className={`border-2 border-dashed rounded-[2.5rem] p-16 text-center transition-all ${isAnalyzing ? 'border-blue-300 bg-blue-50' : 'border-gray-300 hover:border-blue-400 bg-white'}`}>
             <input type="file" ref={aiInputRef} className="hidden" accept="image/*" onChange={handleAIFileUpload} />
             {isAnalyzing ? (
-              <div className="flex flex-col items-center"><Loader2 className="w-12 h-12 text-blue-600 animate-spin" /><p className="mt-4 font-black text-blue-600 tracking-tighter">GEMINI ANALYZING...</p></div>
+              <div className="flex flex-col items-center"><Loader2 className="w-12 h-12 text-blue-600 animate-spin" /><p className="mt-4 font-black text-blue-600">ANALYZING...</p></div>
             ) : (
-              <div className="flex flex-col items-center"><ScanLine className="w-16 h-16 text-gray-200 mb-4" /><p className="font-black text-gray-700 text-lg">SCAN STATEMENT</p><p className="text-xs text-gray-400 mt-2 font-bold uppercase tracking-widest">Auto-detect HK, US & AU assets</p></div>
+              <div className="flex flex-col items-center"><ScanLine className="w-16 h-16 text-gray-200 mb-4" /><p className="font-black text-gray-700">SCAN STATEMENT</p></div>
             )}
           </div>
 
           {scannedItems.length > 0 && (
-            <div className="bg-white rounded-[2.5rem] shadow-2xl border border-gray-100 overflow-hidden mb-24">
-              <div className="p-6 bg-blue-600 text-white flex justify-between items-center">
-                <div className="flex items-center gap-2 font-black italic"><Sparkles size={20}/> AI ANALYSIS RESULT</div>
-                <button onClick={() => setScannedItems([])} className="bg-white/20 p-2 rounded-full hover:bg-white/30"><X size={16}/></button>
-              </div>
-              <div className="p-4 space-y-3 max-h-[45vh] overflow-y-auto bg-gray-50/50">
+            <div className="bg-white rounded-[2.5rem] shadow-2xl border overflow-hidden mb-24">
+              <div className="p-6 bg-blue-600 text-white flex justify-between items-center font-black italic">AI ANALYSIS RESULT</div>
+              <div className="p-4 space-y-3 max-h-[45vh] overflow-y-auto bg-gray-50">
                 {scannedItems.map((item, idx) => (
-                  <div key={idx} className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 space-y-4">
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="space-y-1">
-                        <label className="text-[10px] font-black text-gray-300 uppercase">Institution</label>
-                        <input className="w-full text-sm font-bold text-gray-800 bg-gray-50 px-3 py-2 rounded-xl outline-none" value={item.institution} onChange={(e) => updateScannedItem(idx, 'institution', e.target.value)} />
-                      </div>
-                      <div className="space-y-1">
-                        <label className="text-[10px] font-black text-gray-300 uppercase">Symbol (e.g. NAB.AX)</label>
-                        <input className="w-full text-sm font-black text-blue-600 bg-blue-50/50 px-3 py-2 rounded-xl outline-none border border-blue-100" value={item.symbol || ''} onChange={(e) => updateScannedItem(idx, 'symbol', e.target.value)} />
-                      </div>
-                    </div>
-                    <div className="flex justify-between items-end pt-2 border-t border-gray-100">
-                      <div className="text-[10px] font-black text-gray-300 uppercase">Amount / Quantity</div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs font-black text-gray-400">{item.currency}</span>
-                        <input type="number" className="w-28 text-right font-black text-blue-600 text-lg bg-gray-100 px-3 py-1 rounded-xl outline-none" value={item.amount} onChange={(e) => updateScannedItem(idx, 'amount', parseFloat(e.target.value) || 0)} />
-                      </div>
+                  <div key={idx} className="bg-white p-5 rounded-2xl shadow-sm space-y-4">
+                    <div className="grid grid-cols-2 gap-4 text-xs font-black">
+                      <div>INSTITUTION: <input className="w-full bg-gray-50 p-2 rounded-lg" value={item.institution} onChange={(e) => updateScannedItem(idx, 'institution', e.target.value)} /></div>
+                      <div>SYMBOL: <input className="w-full bg-blue-50 p-2 rounded-lg text-blue-600" value={item.symbol || ''} onChange={(e) => updateScannedItem(idx, 'symbol', e.target.value)} /></div>
                     </div>
                   </div>
                 ))}
               </div>
-              <div className="p-6 bg-white border-t border-gray-100">
-                <button onClick={handleAISyncConfirm} disabled={isSaving} className="w-full py-5 bg-blue-600 text-white rounded-[1.5rem] font-black text-lg shadow-xl shadow-blue-100 flex justify-center items-center gap-3 active:scale-95 transition-all">
-                  {isSaving ? <Loader2 className="animate-spin" /> : <CheckCircle2 size={24} />}
-                  {isSaving ? 'UPDATING...' : 'CONFIRM & SYNC'}
+              <div className="p-6 bg-white border-t">
+                <button onClick={handleAISyncConfirm} disabled={isSaving} className="w-full py-5 bg-blue-600 text-white rounded-[1.5rem] font-black flex justify-center items-center gap-3">
+                  {isSaving ? <Loader2 className="animate-spin" /> : <CheckCircle2 size={24} />} CONFIRM & SYNC
                 </button>
               </div>
             </div>
@@ -303,42 +282,25 @@ const UpdatePage: React.FC<UpdatePageProps> = ({ accounts, onSave }) => {
         </div>
       )}
 
-      {/* Manual Modal */}
+      {/* Manual Add Modal */}
       {isModalOpen && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-6 z-[100] backdrop-blur-md animate-in fade-in transition-all">
-          <div className="bg-white w-full max-w-sm rounded-[3rem] p-10 shadow-2xl space-y-8 animate-in zoom-in-95 duration-200">
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-6 z-[100] backdrop-blur-md">
+          <div className="bg-white w-full max-w-sm rounded-[3rem] p-10 shadow-2xl space-y-8">
             <div className="flex justify-between items-center">
               <h3 className="font-black text-3xl text-gray-800 tracking-tighter">Add {newAssetType === AccountType.STOCK ? 'Stock' : 'Bank'}</h3>
-              <button onClick={() => setIsModalOpen(false)} className="text-gray-300 hover:text-gray-600 transition-colors"><X size={28}/></button>
+              <button onClick={() => setIsModalOpen(false)} className="text-gray-300"><X size={28}/></button>
             </div>
             <div className="space-y-5">
-              {newAssetType === AccountType.STOCK ? (
-                <>
-                  <div className="space-y-2">
-                    <label className="text-xs font-black text-gray-400 ml-2 uppercase">Symbol (0700.HK / TSLA / NAB.AX)</label>
-                    <input placeholder="e.g. 5, AAPL, BHP.AX" value={newItemData.symbol} onChange={e => setNewItemData({...newItemData, symbol: e.target.value})} className="w-full p-5 bg-gray-50 rounded-2xl outline-none focus:ring-4 ring-blue-100 font-black text-xl text-blue-600 placeholder:text-gray-200" />
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-xs font-black text-gray-400 ml-2 uppercase">Quantity</label>
-                    <input type="number" placeholder="0" value={newItemData.amount} onChange={e => setNewItemData({...newItemData, amount: e.target.value})} className="w-full p-5 bg-gray-50 rounded-2xl outline-none focus:ring-4 ring-blue-100 font-black text-xl placeholder:text-gray-200" />
-                  </div>
-                </>
-              ) : (
-                <>
-                  <div className="space-y-2">
-                    <label className="text-xs font-black text-gray-400 ml-2 uppercase">Bank / Institution</label>
-                    <input placeholder="e.g. HSBC, Mox, NAB" value={newItemData.name} onChange={e => setNewItemData({...newItemData, name: e.target.value})} className="w-full p-5 bg-gray-50 rounded-2xl outline-none focus:ring-4 ring-blue-100 font-black text-xl text-gray-800 placeholder:text-gray-200" />
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-xs font-black text-gray-400 ml-2 uppercase">Balance</label>
-                    <input type="number" placeholder="0.00" value={newItemData.amount} onChange={e => setNewItemData({...newItemData, amount: e.target.value})} className="w-full p-5 bg-gray-50 rounded-2xl outline-none focus:ring-4 ring-blue-100 font-black text-xl placeholder:text-gray-200" />
-                  </div>
-                </>
-              )}
+              <div className="space-y-2">
+                <label className="text-xs font-black text-gray-400 uppercase">{newAssetType === AccountType.STOCK ? 'Symbol (e.g. 0700.HK / AAPL)' : 'Bank Name (e.g. HSBC)'}</label>
+                <input placeholder={newAssetType === AccountType.STOCK ? "Symbol" : "Institution"} value={newAssetType === AccountType.STOCK ? newItemData.symbol : newItemData.name} onChange={e => setNewItemData({...newItemData, [newAssetType === AccountType.STOCK ? 'symbol' : 'name']: e.target.value})} className="w-full p-5 bg-gray-50 rounded-2xl outline-none font-black text-xl text-blue-600" />
+              </div>
+              <div className="space-y-2">
+                <label className="text-xs font-black text-gray-400 uppercase">{newAssetType === AccountType.STOCK ? 'Quantity' : 'Balance'}</label>
+                <input type="number" placeholder="0" value={newItemData.amount} onChange={e => setNewItemData({...newItemData, amount: e.target.value})} className="w-full p-5 bg-gray-50 rounded-2xl outline-none font-black text-xl" />
+              </div>
             </div>
-            <button onClick={handleAddAsset} disabled={isSaving} className="w-full py-5 bg-blue-600 text-white rounded-[2rem] font-black text-xl shadow-2xl shadow-blue-200 active:scale-95 transition-all flex justify-center items-center">
-                {isSaving ? <Loader2 className="animate-spin" /> : 'ADD ASSET'}
-            </button>
+            <button onClick={handleAddAsset} disabled={isSaving} className="w-full py-5 bg-blue-600 text-white rounded-[2rem] font-black text-xl">ADD ASSET</button>
           </div>
         </div>
       )}
