@@ -1,9 +1,6 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 
-// 1. 取得 Key (Vite 專用讀取方式)
 const API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
-
-// 2. 初始化客戶端
 const genAI = API_KEY ? new GoogleGenerativeAI(API_KEY) : null;
 
 export interface ScannedAsset {
@@ -14,16 +11,12 @@ export interface ScannedAsset {
   currency: string;
 }
 
-/**
- * 估算股價
- */
+// 估算股價
 export const getStockEstimate = async (symbol: string): Promise<number | null> => {
-  if (!genAI) {
-    console.error("AI Key Missing");
-    return null;
-  }
+  if (!genAI) return null;
   try {
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+    // 修正點：改用 gemini-1.5-flash-latest
+    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash-latest" });
     const result = await model.generateContent(`Current price of ${symbol}? Return ONLY JSON: {"price": 123.4}`);
     const response = await result.response;
     const data = JSON.parse(response.text());
@@ -34,17 +27,13 @@ export const getStockEstimate = async (symbol: string): Promise<number | null> =
   }
 };
 
-/**
- * AI 掃描單據
- */
+// AI 掃描單據
 export const parseFinancialStatement = async (base64Data: string): Promise<ScannedAsset[] | null> => {
-  if (!genAI) {
-    alert("AI Key 尚未設定，請在 Vercel 設定 VITE_GEMINI_API_KEY");
-    return null;
-  }
+  if (!genAI) return null;
   try {
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-    const prompt = `Extract assets from this image into JSON list: [{"category": "CASH"|"STOCK", "institution": "name", "symbol": "ticker", "amount": number, "currency": "HKD"}]. Note: For stocks, amount is quantity.`;
+    // 修正點：改用 gemini-1.5-flash-latest
+    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash-latest" });
+    const prompt = `Extract assets from this image into JSON list: [{"category": "CASH"|"STOCK", "institution": "name", "symbol": "ticker", "amount": number, "currency": "HKD"}]. For stocks, amount is quantity.`;
 
     const result = await model.generateContent([
       { inlineData: { mimeType: "image/jpeg", data: base64Data } },
@@ -52,7 +41,10 @@ export const parseFinancialStatement = async (base64Data: string): Promise<Scann
     ]);
 
     const response = await result.response;
-    return JSON.parse(response.text());
+    const text = response.text();
+    // 預防 AI 回傳 Markdown 格式 (```json ... ```)
+    const cleanJson = text.replace(/```json|```/g, "").trim();
+    return JSON.parse(cleanJson);
   } catch (e) {
     console.error("AI Analysis Error:", e);
     return null;
