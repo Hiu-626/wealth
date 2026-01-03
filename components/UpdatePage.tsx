@@ -7,6 +7,7 @@ import {
 import { getStockEstimate, parseFinancialStatement, ScannedAsset } from '../services/geminiService';
 import Confetti from './Confetti';
 
+// 你的 Google Apps Script URL (如果有的話)
 const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbw2sgqsu0u5qBZYzrPvW_UEQVREUR8NBi2kIY1JfCCDPGpIWJwCgFNvdNzrj4xyXTAJHw/exec';
 
 interface UpdatePageProps {
@@ -17,23 +18,26 @@ interface UpdatePageProps {
 const UpdatePage: React.FC<UpdatePageProps> = ({ accounts, onSave }) => {
   const [activeTab, setActiveTab] = useState<'MANUAL' | 'AI_SCANNER'>('MANUAL');
   const [showConfetti, setShowConfetti] = useState(false);
-  const [isSyncing, setIsSyncing] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
   const [localAccounts, setLocalAccounts] = useState<Account[]>([...accounts]);
   
+  // Modal & Edit State
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [newAssetType, setNewAssetType] = useState<AccountType | null>(null);
   const [newItemData, setNewItemData] = useState({ name: '', symbol: '', amount: '' });
   
+  // AI Scanner State
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [scannedItems, setScannedItems] = useState<ScannedAsset[]>([]);
   const aiInputRef = useRef<HTMLInputElement>(null);
 
-  // --- 1. 核心同步邏輯 (WebApp + Cloud) ---
-  const handleFinalSync = async (updatedLocalAccounts: Account[]) => {
-    setIsSyncing(true);
-    onSave(updatedLocalAccounts); // 優先更新本地
+  // --- 1. 核心儲存邏輯 (保證執行) ---
+  const handleFinalSave = (updatedLocalAccounts: Account[]) => {
+    setIsSaving(true);
     setShowConfetti(true);
 
+    // A. 雲端同步 (非阻塞式 - Fire and Forget)
+    // 我們不等待這個 fetch 完成，這樣即使網路慢也不會卡住 UI
     if (GOOGLE_SCRIPT_URL && GOOGLE_SCRIPT_URL.includes('/exec')) {
       const payload = {
         assets: updatedLocalAccounts.map(acc => ({
@@ -45,23 +49,38 @@ const UpdatePage: React.FC<UpdatePageProps> = ({ accounts, onSave }) => {
           metadata: { market: acc.symbol?.includes('.AX') ? 'AU' : (acc.symbol?.includes('.HK') ? 'HK' : 'US') }
         }))
       };
-      fetch(GOOGLE_SCRIPT_URL, { method: 'POST', mode: 'no-cors', body: JSON.stringify(payload) })
-        .catch(e => console.warn("Cloud sync error:", e));
+      
+      // 使用 catch 忽略錯誤，確保不影響流程
+      fetch(GOOGLE_SCRIPT_URL, { 
+        method: 'POST', 
+        mode: 'no-cors', 
+        body: JSON.stringify(payload) 
+      }).catch(e => console.warn("Cloud sync skipped:", e));
     }
-    setTimeout(() => setIsSyncing(false), 1000);
+
+    // B. 本地儲存與跳轉 (延遲 1.2 秒讓動畫跑完)
+    setTimeout(() => {
+      onSave(updatedLocalAccounts);
+      setIsSaving(false);
+    }, 1200);
   };
 
   // --- 2. 手動功能：新增與刪除 ---
   const handleAddAsset = async () => {
     if (!newAssetType) return;
-    setIsSyncing(true);
+    setIsSaving(true); // 暫時顯示 loading
+    
     let price = 0;
     let finalSymbol = newItemData.symbol.toUpperCase().trim();
     
-    // 自動補全市場後綴
+    // 自動補全市場後綴邏輯
     if (newAssetType === AccountType.STOCK && finalSymbol) {
       if (/^\d{1,4}$/.test(finalSymbol)) finalSymbol = finalSymbol.padStart(5, '0') + '.HK';
-      price = await getStockEstimate(finalSymbol) || 0;
+      // 簡單獲取價格 (如果 API Key 設定正確)
+      try {
+        const est = await getStockEstimate(finalSymbol);
+        price = est || 0;
+      } catch (e) { console.warn("Price fetch failed"); }
     }
 
     const newAcc: Account = {
@@ -78,13 +97,12 @@ const UpdatePage: React.FC<UpdatePageProps> = ({ accounts, onSave }) => {
     setLocalAccounts(prev => [...prev, newAcc]);
     setIsModalOpen(false);
     setNewItemData({ name: '', symbol: '', amount: '' });
-    setIsSyncing(false);
+    setIsSaving(false);
   };
 
   const handleDeleteAccount = (id: string, name: string) => {
-    if (window.confirm(`⚠️ 確定要刪除「${name}」嗎？此操作將同時影響總資產計算。`)) {
-      const updated = localAccounts.filter(acc => acc.id !== id);
-      setLocalAccounts(updated);
+    if (window.confirm(`Delete "${name}"? This affects your total wealth.`)) {
+      setLocalAccounts(prev => prev.filter(acc => acc.id !== id));
     }
   };
 
@@ -93,6 +111,7 @@ const UpdatePage: React.FC<UpdatePageProps> = ({ accounts, onSave }) => {
     const file = e.target.files?.[0];
     if (!file) return;
     setIsAnalyzing(true);
+    
     const reader = new FileReader();
     reader.onloadend = async () => {
       const base64 = (reader.result as string).split(',')[1];
@@ -110,14 +129,13 @@ const UpdatePage: React.FC<UpdatePageProps> = ({ accounts, onSave }) => {
   };
 
   const handleAISyncConfirm = async () => {
-    setIsSyncing(true);
+    setIsSaving(true);
+    
+    // 為掃描到的項目豐富數據 (獲取價格)
     const enriched = await Promise.all(scannedItems.map(async (item) => {
       let finalSymbol = item.symbol?.toUpperCase().trim() || '';
-      // 市場自動識別引擎
       if (/^\d{1,5}$/.test(finalSymbol)) {
         finalSymbol = finalSymbol.padStart(5, '0') + '.HK';
-      } else if (/^[A-Z]{3}$/.test(finalSymbol) && (item.currency === 'AUD' || item.institution.includes('NAB'))) {
-        finalSymbol = `${finalSymbol}.AX`;
       }
 
       let price = 0;
@@ -139,8 +157,10 @@ const UpdatePage: React.FC<UpdatePageProps> = ({ accounts, onSave }) => {
 
     const finalAccounts = [...localAccounts, ...enriched];
     setLocalAccounts(finalAccounts);
-    handleFinalSync(finalAccounts);
-    setScannedItems([]);
+    setScannedItems([]); // 清空掃描結果
+    
+    // 執行最終儲存
+    handleFinalSave(finalAccounts);
   };
 
   return (
@@ -212,8 +232,8 @@ const UpdatePage: React.FC<UpdatePageProps> = ({ accounts, onSave }) => {
             </div>
           </section>
 
-          <button onClick={() => handleFinalSync(localAccounts)} disabled={isSyncing} className="fixed bottom-28 left-6 right-6 bg-blue-600 text-white py-5 rounded-[2rem] font-black shadow-2xl shadow-blue-200 flex justify-center items-center gap-3 active:scale-95 transition-all disabled:bg-gray-400">
-            {isSyncing ? <Loader2 className="animate-spin" /> : <Save size={20} />} {isSyncing ? 'SYNCING...' : 'SAVE & SYNC CLOUD'}
+          <button onClick={() => handleFinalSave(localAccounts)} disabled={isSaving} className="fixed bottom-28 left-6 right-6 bg-blue-600 text-white py-5 rounded-[2rem] font-black shadow-2xl shadow-blue-200 flex justify-center items-center gap-3 active:scale-95 transition-all disabled:bg-gray-400 z-30">
+            {isSaving ? <Loader2 className="animate-spin" /> : <Save size={20} />} {isSaving ? 'SAVING...' : 'SAVE & UPDATE'}
           </button>
         </div>
       ) : (
@@ -229,7 +249,7 @@ const UpdatePage: React.FC<UpdatePageProps> = ({ accounts, onSave }) => {
           </div>
 
           {scannedItems.length > 0 && (
-            <div className="bg-white rounded-[2.5rem] shadow-2xl border border-gray-100 overflow-hidden">
+            <div className="bg-white rounded-[2.5rem] shadow-2xl border border-gray-100 overflow-hidden mb-24">
               <div className="p-6 bg-blue-600 text-white flex justify-between items-center">
                 <div className="flex items-center gap-2 font-black italic"><Sparkles size={20}/> AI DETECTED</div>
                 <button onClick={() => setScannedItems([])} className="bg-white/20 p-2 rounded-full hover:bg-white/30"><X size={16}/></button>
@@ -258,9 +278,9 @@ const UpdatePage: React.FC<UpdatePageProps> = ({ accounts, onSave }) => {
                 ))}
               </div>
               <div className="p-6 bg-white border-t border-gray-100">
-                <button onClick={handleAISyncConfirm} disabled={isSyncing} className="w-full py-5 bg-blue-600 text-white rounded-[1.5rem] font-black text-lg shadow-xl shadow-blue-100 flex justify-center items-center gap-3">
-                  {isSyncing ? <Loader2 className="animate-spin" /> : <CheckCircle2 size={24} />}
-                  {isSyncing ? 'FETCHING PRICES...' : 'CONFIRM & ADD ALL'}
+                <button onClick={handleAISyncConfirm} disabled={isSaving} className="w-full py-5 bg-blue-600 text-white rounded-[1.5rem] font-black text-lg shadow-xl shadow-blue-100 flex justify-center items-center gap-3">
+                  {isSaving ? <Loader2 className="animate-spin" /> : <CheckCircle2 size={24} />}
+                  {isSaving ? 'UPDATING...' : 'CONFIRM & UPDATE'}
                 </button>
               </div>
             </div>
@@ -301,7 +321,9 @@ const UpdatePage: React.FC<UpdatePageProps> = ({ accounts, onSave }) => {
                 </>
               )}
             </div>
-            <button onClick={handleAddAsset} className="w-full py-5 bg-blue-600 text-white rounded-[2rem] font-black text-xl shadow-2xl shadow-blue-200 active:scale-95 transition-all">ADD TO ASSETS</button>
+            <button onClick={handleAddAsset} disabled={isSaving} className="w-full py-5 bg-blue-600 text-white rounded-[2rem] font-black text-xl shadow-2xl shadow-blue-200 active:scale-95 transition-all flex justify-center items-center">
+                {isSaving ? <Loader2 className="animate-spin" /> : 'ADD ASSET'}
+            </button>
           </div>
         </div>
       )}

@@ -10,7 +10,7 @@ import FDManager from './components/FDManager';
 const App: React.FC = () => {
   const [data, setData] = useState<AppState | null>(null);
   const [currentView, setCurrentView] = useState<ViewState>('overview');
- 
+
   useEffect(() => {
     const loadedData = getStoredData();
     setData(loadedData);
