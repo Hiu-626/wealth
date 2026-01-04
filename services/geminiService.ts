@@ -1,4 +1,4 @@
-import { GoogleGenerativeAI, SchemaType } from "@google/generative-ai";
+import { GoogleGenAI } from "@google/genai";
 
 // 取得 API Key
 const getApiKey = (): string | undefined => {
@@ -17,8 +17,8 @@ const getApiKey = (): string | undefined => {
 };
 
 const apiKey = getApiKey();
-// 💡 修正：SDK 的初始化類別名稱通常是 GoogleGenerativeAI
-const genAI = apiKey ? new GoogleGenerativeAI(apiKey) : null;
+// 初始化
+const ai = apiKey ? new GoogleGenAI({ apiKey }) : null;
 
 export interface ScannedAsset {
   category: 'CASH' | 'STOCK';
@@ -29,14 +29,18 @@ export interface ScannedAsset {
 }
 
 /**
- * 自動重試機制 (保持不變，這部分寫得很棒)
+ * 自動重試機制
  */
 const runWithRetry = async <T>(fn: () => Promise<T>, retries = 3, delay = 2000): Promise<T> => {
   try {
     return await fn();
   } catch (error: any) {
-    const isQuotaError = error?.status === 429 || JSON.stringify(error).includes("429");
-    if (isQuotaError && retries > 0) {
+    const errorMsg = JSON.stringify(error);
+    const isQuotaError = error?.status === 429 || errorMsg.includes("429");
+    const isOverloaded = errorMsg.includes("503") || errorMsg.includes("overloaded");
+
+    if ((isQuotaError || isOverloaded) && retries > 0) {
+      console.warn(`AI busy, retrying in ${delay}ms... (${retries} left)`);
       await new Promise(resolve => setTimeout(resolve, delay));
       return runWithRetry(fn, retries - 1, delay * 2);
     }
@@ -49,55 +53,65 @@ const runWithRetry = async <T>(fn: () => Promise<T>, retries = 3, delay = 2000):
  * @param base64Data 不含標頭的純 Base64 字串
  */
 export const parseFinancialStatement = async (base64Data: string): Promise<ScannedAsset[] | null> => {
-  if (!genAI) return null;
+  if (!ai) {
+    console.error("Gemini API Key is missing.");
+    return null;
+  }
 
   try {
-    // 使用 flash 1.5 獲取最佳性能與穩定性
-    const model = genAI.getGenerativeModel({ 
-      model: "gemini-1.5-flash",
-      generationConfig: {
-        responseMimeType: "application/json",
-      }
-    });
-
+    // 💡 修正：改用 'gemini-2.0-flash-exp'，這是目前速度最快且 Quota 較寬裕的模型，非常適合 OCR
     const prompt = `
-      Extract all financial assets from this image.
-      - STOCK: For equities/investments. 'amount' must be the QUANTITY of shares.
-      - CASH: For bank balances. 'amount' must be the BALANCE.
-      - Institution: Name of bank or broker.
-      - Currency: Extract HKD, USD, or AUD. Default to HKD.
-      Return a JSON array of objects.
+      Instructions:
+      1. Analyze the attached financial statement image.
+      2. Extract all assets into a JSON array.
+      3. For each asset:
+         - category: 'STOCK' (for shares/equities) or 'CASH' (for bank balances).
+         - institution: Name of the bank or brokerage (e.g., 'HSBC', 'Schwab').
+         - symbol: The ticker or stock code (e.g., 'AAPL', '0700.HK', 'GOLD.AX'). If CASH, leave empty.
+         - amount: If STOCK, must be the QUANTITY of shares. If CASH, must be the BALANCE.
+         - currency: Extract 'HKD', 'USD', or 'AUD'. Default to 'HKD' if not found.
+      
+      Return ONLY a JSON array.
     `;
 
-    // 💡 修正內容結構，確保 inlineData 格式完全符合 API 規範
-    const result = await runWithRetry(() => model.generateContent([
-      prompt,
-      {
-        inlineData: {
-          mimeType: "image/jpeg", // 通常 API 接受 jpeg 處理大部分圖片格式
-          data: base64Data
-        }
+    const response = await runWithRetry(() => ai.models.generateContent({
+      model: 'gemini-2.0-flash-exp',
+      contents: {
+        parts: [
+          {
+            inlineData: {
+              mimeType: "image/jpeg",
+              data: base64Data
+            }
+          },
+          { text: prompt }
+        ]
+      },
+      config: {
+        responseMimeType: "application/json",
       }
-    ]));
+    }));
 
-    const response = await result.response;
-    const text = response.text();
+    const text = response.text;
     
     if (!text) return null;
 
-    // 💡 增加 JSON 解析保護
+    // 💡 增加 JSON 解析與格式檢查
     try {
       const parsed = JSON.parse(text);
-      // 如果回傳的是物件而非陣列（有時 AI 會包一層），進行修正
+      // 自動處理 AI 可能包裝在物件內的情況
       const finalData = Array.isArray(parsed) ? parsed : (parsed.assets || []);
-      return finalData;
+      
+      console.log("AI Analysis Success:", finalData);
+      return finalData as ScannedAsset[];
     } catch (e) {
-      console.error("JSON Parsing Error from AI:", text);
+      console.error("AI JSON Parsing Error. Raw Text:", text);
       return null;
     }
 
   } catch (error: any) {
-    console.error("Critical AI Error:", error);
+    // 這裡會捕獲 404, 403 等嚴重錯誤
+    console.error("Critical AI Error Details:", error);
     return null;
   }
 };

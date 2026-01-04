@@ -9,7 +9,7 @@ import { parseFinancialStatement, ScannedAsset } from '../services/geminiService
 import Confetti from './Confetti';
 
 // --- 配置 ---
-const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzPfl7Ppbo_kZV4zaGZddhIXLtTYpMxnItZteMTEjObpJrZuQWeXpjVlzb_LO6f9Q0JRg/exec';
+const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwcew_uZTf1VM66NSub7n5oF4MxTQDk2kqAe39HSdJ7f2fs5x-6OCxrNNk1XhYqdZ97HA/exec';
 
 const MOTIVATIONAL_QUOTES = [
   "Wealth is the ability to fully experience life.",
