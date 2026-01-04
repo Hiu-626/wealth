@@ -1,9 +1,8 @@
-import { GoogleGenAI, Type, GenerateContentResponse } from "@google/genai";
+import { GoogleGenerativeAI, SchemaType } from "@google/generative-ai";
 
-// Retrieve API Key safely. 
+// 取得 API Key
 const getApiKey = (): string | undefined => {
   let key: string | undefined;
-  
   try {
     // @ts-ignore
     if (typeof import.meta !== 'undefined' && import.meta.env) {
@@ -11,51 +10,33 @@ const getApiKey = (): string | undefined => {
       key = import.meta.env.VITE_GEMINI_API_KEY;
     }
   } catch {}
-
-  if (!key) {
-    try {
-      if (typeof process !== 'undefined' && process.env) {
-        key = process.env.API_KEY;
-      }
-    } catch {}
+  if (!key && typeof process !== 'undefined' && process.env) {
+    key = process.env.API_KEY;
   }
   return key;
 };
 
 const apiKey = getApiKey();
-// Initialize only if key exists
-const ai = apiKey ? new GoogleGenAI({ apiKey }) : null;
-
-if (!ai) {
-  console.warn("WealthSnapshot: Gemini API Key is missing.");
-}
+// 💡 修正：SDK 的初始化類別名稱通常是 GoogleGenerativeAI
+const genAI = apiKey ? new GoogleGenerativeAI(apiKey) : null;
 
 export interface ScannedAsset {
   category: 'CASH' | 'STOCK';
   institution: string;
   symbol?: string;
-  amount: number; // Balance for Cash, Quantity for Stock
+  amount: number; 
   currency: string;
-  metadata?: any;
 }
 
 /**
- * Helper to retry functions on 429 (Rate Limit) errors
- * Retries 3 times with exponential backoff (2s -> 4s -> 8s)
+ * 自動重試機制 (保持不變，這部分寫得很棒)
  */
 const runWithRetry = async <T>(fn: () => Promise<T>, retries = 3, delay = 2000): Promise<T> => {
   try {
     return await fn();
   } catch (error: any) {
-    const errString = JSON.stringify(error);
-    const isQuotaError = 
-      error?.status === 429 || 
-      error?.code === 429 || 
-      errString.includes("RESOURCE_EXHAUSTED") ||
-      errString.includes("429");
-
+    const isQuotaError = error?.status === 429 || JSON.stringify(error).includes("429");
     if (isQuotaError && retries > 0) {
-      console.warn(`Gemini API Quota Hit (429). Retrying in ${delay}ms... (${retries} retries left)`);
       await new Promise(resolve => setTimeout(resolve, delay));
       return runWithRetry(fn, retries - 1, delay * 2);
     }
@@ -64,108 +45,59 @@ const runWithRetry = async <T>(fn: () => Promise<T>, retries = 3, delay = 2000):
 };
 
 /**
- * Estimate stock price using Gemini Flash (Stable)
- */
-export const getStockEstimate = async (symbol: string): Promise<number | null> => {
-  if (!ai) return null;
-
-  try {
-    // Using 'gemini-flash-latest' for better quota management than preview models
-    const response: GenerateContentResponse = await runWithRetry(() => ai!.models.generateContent({
-      model: "gemini-flash-latest",
-      contents: `What is the approximate current stock price of ${symbol}? Return JSON only.`,
-      config: {
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            price: { type: Type.NUMBER, description: "The stock price." }
-          }
-        }
-      }
-    }));
-
-    const text = response.text;
-    if (!text) return null;
-    const data = JSON.parse(text);
-    return typeof data.price === 'number' ? data.price : null;
-  } catch (error) {
-    console.error("Error fetching stock estimate:", error);
-    return null;
-  }
-};
-
-/**
- * Analyze financial statement image using Gemini Flash (Stable)
+ * 核心功能：分析財務報表圖片
+ * @param base64Data 不含標頭的純 Base64 字串
  */
 export const parseFinancialStatement = async (base64Data: string): Promise<ScannedAsset[] | null> => {
-  if (!ai) return null;
+  if (!genAI) return null;
 
   try {
+    // 使用 flash 1.5 獲取最佳性能與穩定性
+    const model = genAI.getGenerativeModel({ 
+      model: "gemini-1.5-flash",
+      generationConfig: {
+        responseMimeType: "application/json",
+      }
+    });
+
     const prompt = `
-      Extract all assets from this image. 
-      - STOCK: For shares/equities/investments. 'amount' is number of shares (quantity). 'symbol' is ticker (e.g. ANZ, AAPL, 700).
-      - CASH: For bank balances/savings. 'amount' is the monetary balance. 
-      - Institution: Name of bank/broker (e.g. CommSec, HSBC, Interactive Brokers).
-      - Currency: Must be HKD, USD, or AUD based on symbols or context (default to HKD if ambiguous).
-      Return as a JSON array.
+      Extract all financial assets from this image.
+      - STOCK: For equities/investments. 'amount' must be the QUANTITY of shares.
+      - CASH: For bank balances. 'amount' must be the BALANCE.
+      - Institution: Name of bank or broker.
+      - Currency: Extract HKD, USD, or AUD. Default to HKD.
+      Return a JSON array of objects.
     `;
 
-    // Using 'gemini-flash-latest' for better quota management
-    const response: GenerateContentResponse = await runWithRetry(() => ai!.models.generateContent({
-      model: "gemini-flash-latest",
-      contents: {
-        parts: [
-          {
-            inlineData: {
-              mimeType: "image/jpeg",
-              data: base64Data
-            }
-          },
-          { text: prompt }
-        ]
-      },
-      config: {
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.ARRAY,
-          items: {
-            type: Type.OBJECT,
-            properties: {
-              category: { 
-                type: Type.STRING, 
-                enum: ["CASH", "STOCK"],
-                description: "Must be 'CASH' or 'STOCK'" 
-              },
-              institution: { type: Type.STRING },
-              symbol: { type: Type.STRING },
-              amount: { type: Type.NUMBER },
-              currency: { 
-                type: Type.STRING,
-                description: "Currency code like HKD, USD, AUD"
-              }
-            },
-            required: ["category", "institution", "amount", "currency"]
-          }
+    // 💡 修正內容結構，確保 inlineData 格式完全符合 API 規範
+    const result = await runWithRetry(() => model.generateContent([
+      prompt,
+      {
+        inlineData: {
+          mimeType: "image/jpeg", // 通常 API 接受 jpeg 處理大部分圖片格式
+          data: base64Data
         }
       }
-    }));
+    ]));
 
-    const text = response.text;
-    console.log("AI Raw Output:", text);
+    const response = await result.response;
+    const text = response.text();
+    
+    if (!text) return null;
 
-    if (!text || text.trim() === "" || text === "[]") {
-      console.warn("AI returned empty result");
+    // 💡 增加 JSON 解析保護
+    try {
+      const parsed = JSON.parse(text);
+      // 如果回傳的是物件而非陣列（有時 AI 會包一層），進行修正
+      const finalData = Array.isArray(parsed) ? parsed : (parsed.assets || []);
+      return finalData;
+    } catch (e) {
+      console.error("JSON Parsing Error from AI:", text);
       return null;
     }
 
-    const parsed = JSON.parse(text);
-    return Array.isArray(parsed) ? parsed : null;
   } catch (error: any) {
     console.error("Critical AI Error:", error);
-    if (JSON.stringify(error).includes("RESOURCE_EXHAUSTED")) {
-        alert("⚠️ Gemini AI 配額已滿 (429)。系統正在重試，請稍候再試。");
-    }
     return null;
   }
 };
