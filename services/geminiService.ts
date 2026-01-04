@@ -26,6 +26,7 @@ export interface ScannedAsset {
   symbol?: string;
   amount: number; 
   currency: string;
+  price?: number; // Added for manual price editing
 }
 
 /**
@@ -65,9 +66,9 @@ export const parseFinancialStatement = async (base64Data: string): Promise<Scann
       1. Analyze the attached financial statement image.
       2. Extract all assets into a JSON array.
       3. For each asset:
-         - category: 'STOCK' (for shares/equities) or 'CASH' (for bank balances).
-         - institution: Name of the bank or brokerage (e.g., 'HSBC', 'Schwab').
-         - symbol: The ticker or stock code (e.g., 'AAPL', '0700.HK', 'GOLD.AX'). If CASH, leave empty.
+         - category: 'STOCK' (for shares/equities/funds) or 'CASH' (for bank balances/deposits).
+         - institution: Name of the bank or brokerage. clearly identify names like 'CommSec', 'Hang Seng', 'HSBC', 'Schwab', 'IBKR'.
+         - symbol: The ticker or stock code (e.g., 'AAPL', '0700.HK', 'GOLD.AX', 'IVV'). If CASH, leave empty.
          - amount: If STOCK, must be the QUANTITY of shares. If CASH, must be the BALANCE.
          - currency: Extract 'HKD', 'USD', or 'AUD'. Default to 'HKD' if not found.
       

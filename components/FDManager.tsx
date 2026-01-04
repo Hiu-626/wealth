@@ -1,16 +1,15 @@
 import React, { useState, useMemo } from 'react';
 import { FixedDeposit, Currency, Account } from '../types';
-import { Plus, Trash2, Calendar, RefreshCw, ArrowRightLeft, Percent, TrendingUp, AlertCircle, X, Check, Clock, Download, Landmark, Wallet } from 'lucide-react';
+import { Plus, Trash2, Calendar, RefreshCw, ArrowRightLeft, Percent, TrendingUp, AlertCircle, X, Check, Clock, Download, Landmark, Wallet, Calculator } from 'lucide-react';
 
 interface FDManagerProps {
   fds: FixedDeposit[];
-  accounts: Account[]; // Needed for settlement target selection
+  accounts: Account[];
   onUpdate: (fds: FixedDeposit[]) => void;
   onSettle: (fdId: string, targetAccountId: string, finalAmount: number) => void;
   onBack: () => void;
 }
 
-// Helper: Calculate simple interest
 const calculateSimpleInterest = (principal: number, rate: number, months: number) => {
     return Math.round(principal * (rate / 100) * (months / 12));
 };
@@ -18,30 +17,52 @@ const calculateSimpleInterest = (principal: number, rate: number, months: number
 const FDManager: React.FC<FDManagerProps> = ({ fds, accounts, onUpdate, onSettle, onBack }) => {
   const [isAdding, setIsAdding] = useState(false);
   
-  // --- Add New FD State ---
-  const [newFD, setNewFD] = useState<Partial<FixedDeposit>>({
+  const [newFD, setNewFD] = useState<Partial<FixedDeposit & { startDate: string }>>({
     bankName: 'HSBC',
     currency: 'HKD',
     actionOnMaturity: 'Renew',
     autoRoll: true,
-    interestRate: 4.0
+    interestRate: 4.0,
+    startDate: new Date().toISOString().split('T')[0]
   });
 
-  // --- Rollover Modal State ---
+  const estimation = useMemo(() => {
+    const principal = Number(newFD.principal) || 0;
+    const rate = Number(newFD.interestRate) || 0;
+    
+    if (!newFD.startDate || !newFD.maturityDate || principal <= 0) {
+        return { interest: 0, total: principal, days: 0 };
+    }
+
+    const start = new Date(newFD.startDate);
+    start.setHours(0,0,0,0);
+    const maturity = new Date(newFD.maturityDate);
+    maturity.setHours(0,0,0,0);
+
+    const diffTime = maturity.getTime() - start.getTime();
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+    if (diffDays <= 0) return { interest: 0, total: principal, days: 0 };
+
+    const interest = Math.round(principal * (rate / 100) * (diffDays / 365));
+
+    return {
+        interest,
+        total: principal + interest,
+        days: diffDays
+    };
+  }, [newFD.principal, newFD.interestRate, newFD.startDate, newFD.maturityDate]);
+
   const [rolloverTarget, setRolloverTarget] = useState<FixedDeposit | null>(null);
   const [rolloverInterest, setRolloverInterest] = useState<number>(0);
   const [rolloverNewRate, setRolloverNewRate] = useState<number>(4.0);
-  const [rolloverDuration, setRolloverDuration] = useState<number>(3); // Months
+  const [rolloverDuration, setRolloverDuration] = useState<number>(3);
 
-  // --- Settle (Cash Out) Modal State ---
   const [settleTarget, setSettleTarget] = useState<FixedDeposit | null>(null);
   const [settleFinalInterest, setSettleFinalInterest] = useState<number>(0);
   const [settleDestId, setSettleDestId] = useState<string>('');
 
-
-  const BANKS = ['HSBC', 'Standard Chartered', 'BOC', 'Hang Seng', 'Citibank', 'Mox', 'ZA Bank'];
-
-  // --- Handlers ---
+  const BANKS = ['HSBC', 'Standard Chartered', 'BOC', 'Hang Seng', 'Citibank', 'Mox', 'ZA Bank', 'CommSec'];
 
   const handleAdd = () => {
     if (!newFD.principal || !newFD.maturityDate) return;
@@ -57,10 +78,16 @@ const FDManager: React.FC<FDManagerProps> = ({ fds, accounts, onUpdate, onSettle
     };
     onUpdate([...fds, fd]);
     setIsAdding(false);
-    setNewFD({ bankName: 'HSBC', currency: 'HKD', actionOnMaturity: 'Renew', autoRoll: true, interestRate: 4.0 });
+    setNewFD({ 
+        bankName: 'HSBC', 
+        currency: 'HKD', 
+        actionOnMaturity: 'Renew', 
+        autoRoll: true, 
+        interestRate: 4.0,
+        startDate: new Date().toISOString().split('T')[0]
+    });
   };
 
-  // --- ROLLOVER LOGIC ---
   const openRolloverModal = (fd: FixedDeposit) => {
       const estimatedInt = calculateSimpleInterest(fd.principal, fd.interestRate || 0, 3);
       setRolloverTarget(fd);
@@ -71,12 +98,9 @@ const FDManager: React.FC<FDManagerProps> = ({ fds, accounts, onUpdate, onSettle
 
   const confirmRollover = () => {
       if (!rolloverTarget) return;
-
       const newPrincipal = rolloverTarget.principal + Number(rolloverInterest);
-      
       const d = new Date(); 
       d.setMonth(d.getMonth() + Number(rolloverDuration));
-      
       const updatedFDs = fds.map(fd => {
           if (fd.id === rolloverTarget.id) {
               return {
@@ -89,20 +113,14 @@ const FDManager: React.FC<FDManagerProps> = ({ fds, accounts, onUpdate, onSettle
           }
           return fd;
       });
-
       onUpdate(updatedFDs);
       setRolloverTarget(null);
   };
 
-  // --- SETTLE LOGIC ---
   const openSettleModal = (fd: FixedDeposit) => {
-      // Estimate interest (default 3 months)
       const estimatedInt = calculateSimpleInterest(fd.principal, fd.interestRate || 0, 3);
-      
       setSettleTarget(fd);
       setSettleFinalInterest(estimatedInt);
-      
-      // Smart Default: Find a cash account with same currency
       const defaultAcc = accounts.find(a => a.currency === fd.currency && a.type === 'Cash') || accounts[0];
       setSettleDestId(defaultAcc?.id || '');
   };
@@ -121,7 +139,7 @@ const FDManager: React.FC<FDManagerProps> = ({ fds, accounts, onUpdate, onSettle
       <div className="flex justify-between items-center mb-6">
           <h1 className="text-2xl font-bold text-gray-800">Fixed Deposits</h1>
           <button onClick={() => setIsAdding(!isAdding)} className="bg-gray-100 p-2 rounded-full hover:bg-gray-200">
-             <Plus className={`w-6 h-6 text-gray-600 transition-transform ${isAdding ? 'rotate-45' : ''}`} />
+              <Plus className={`w-6 h-6 text-gray-600 transition-transform ${isAdding ? 'rotate-45' : ''}`} />
           </button>
       </div>
 
@@ -134,7 +152,7 @@ const FDManager: React.FC<FDManagerProps> = ({ fds, accounts, onUpdate, onSettle
               
               <div className="space-y-4">
                   <div>
-                      <label className="text-xs font-bold text-gray-400 uppercase">Bank</label>
+                      <label className="text-xs font-bold text-gray-400 uppercase">Bank / Institution</label>
                       <select 
                         className="w-full bg-gray-50 p-3 rounded-xl mt-1 font-bold text-gray-700 outline-none focus:ring-2 focus:ring-blue-100"
                         value={newFD.bankName}
@@ -168,26 +186,56 @@ const FDManager: React.FC<FDManagerProps> = ({ fds, accounts, onUpdate, onSettle
                      </div>
                   </div>
 
-                  <div className="flex space-x-3">
-                      <div className="w-28">
+                  {/* 優化後的日期與利率佈局 */}
+                  <div className="grid grid-cols-2 gap-3">
+                      <div>
                         <label className="text-xs font-bold text-gray-400 uppercase">Rate (%)</label>
-                        <div className="relative">
-                            <input 
-                                type="number" 
-                                className="w-full bg-gray-50 p-3 rounded-xl mt-1 font-roboto font-bold text-gray-800 outline-none focus:ring-2 focus:ring-blue-100"
-                                placeholder="4.0"
-                                value={newFD.interestRate}
-                                onChange={(e) => setNewFD({...newFD, interestRate: Number(e.target.value)})}
-                            />
-                        </div>
+                        <input 
+                            type="number" 
+                            step="0.01"
+                            className="w-full bg-gray-50 p-3 rounded-xl mt-1 font-roboto font-bold text-gray-800 outline-none focus:ring-2 focus:ring-blue-100"
+                            placeholder="4.0"
+                            value={newFD.interestRate}
+                            onChange={(e) => setNewFD({...newFD, interestRate: Number(e.target.value)})}
+                        />
                       </div>
-                      <div className="flex-1">
-                          <label className="text-xs font-bold text-gray-400 uppercase">Maturity Date</label>
+                      <div>
+                          <label className="text-xs font-bold text-gray-400 uppercase">Start Date</label>
                           <input 
                             type="date" 
                             className="w-full bg-gray-50 p-3 rounded-xl mt-1 font-medium text-gray-700 outline-none focus:ring-2 focus:ring-blue-100"
-                            onChange={(e) => setNewFD({...newFD, maturityDate: e.target.value})}
+                            value={newFD.startDate}
+                            onChange={(e) => setNewFD({...newFD, startDate: e.target.value})}
                           />
+                      </div>
+                  </div>
+
+                  <div>
+                      <label className="text-xs font-bold text-gray-400 uppercase">Maturity Date</label>
+                      <input 
+                        type="date" 
+                        className="w-full bg-gray-50 p-3 rounded-xl mt-1 font-medium text-gray-700 outline-none focus:ring-2 focus:ring-blue-100"
+                        onChange={(e) => setNewFD({...newFD, maturityDate: e.target.value})}
+                      />
+                  </div>
+
+                  {/* --- Live Interest Calculation --- */}
+                  <div className="bg-gradient-to-br from-gray-50 to-blue-50/50 p-4 rounded-xl border border-blue-100 relative overflow-hidden">
+                      <div className="flex justify-between items-center mb-1">
+                          <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest flex items-center">
+                              <Calculator className="w-3 h-3 mr-1" /> Est. Interest ({estimation.days} days)
+                          </div>
+                          <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Total Maturity</div>
+                      </div>
+                      <div className="flex justify-between items-end">
+                          <div className="text-xl font-black text-green-600 flex items-center">
+                              +{estimation.interest.toLocaleString()}
+                              <span className="text-[10px] font-bold text-green-400 ml-1">{newFD.currency}</span>
+                          </div>
+                          <div className="text-xl font-black text-blue-700 flex items-center">
+                              {estimation.total.toLocaleString()}
+                              <span className="text-[10px] font-bold text-blue-400 ml-1">{newFD.currency}</span>
+                          </div>
                       </div>
                   </div>
 
@@ -268,7 +316,6 @@ const FDManager: React.FC<FDManagerProps> = ({ fds, accounts, onUpdate, onSettle
                             </div>
                         </div>
 
-                        {/* Actions */}
                         <div className="flex space-x-2">
                             {isMatured ? (
                                 <>
