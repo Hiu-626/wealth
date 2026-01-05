@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { FixedDeposit, Currency, Account } from '../types';
-import { Plus, Trash2, Calendar, RefreshCw, ArrowRightLeft, Percent, TrendingUp, AlertCircle, X, Check, Clock, Download, Landmark, Wallet, Calculator } from 'lucide-react';
+import { Plus, Trash2, RefreshCw, Percent, AlertCircle, X, Check, Clock, Download, Landmark, Calculator, Info, EyeOff } from 'lucide-react';
 
 interface FDManagerProps {
   fds: FixedDeposit[];
@@ -17,56 +17,45 @@ const calculateSimpleInterest = (principal: number, rate: number, months: number
 const FDManager: React.FC<FDManagerProps> = ({ fds, accounts, onUpdate, onSettle, onBack }) => {
   const [isAdding, setIsAdding] = useState(false);
   
-  const [newFD, setNewFD] = useState<Partial<FixedDeposit & { startDate: string }>>({
+  const [newFD, setNewFD] = useState<Partial<FixedDeposit & { startDate: string, type: 'Fixed' | 'Savings' }>>({
     bankName: 'HSBC',
     currency: 'HKD',
     actionOnMaturity: 'Renew',
     autoRoll: true,
     interestRate: 4.0,
-    startDate: new Date().toISOString().split('T')[0]
+    startDate: new Date().toISOString().split('T')[0],
+    type: 'Fixed'
   });
 
-  const estimation = useMemo(() => {
-    const principal = Number(newFD.principal) || 0;
-    const rate = Number(newFD.interestRate) || 0;
-    
-    if (!newFD.startDate || !newFD.maturityDate || principal <= 0) {
-        return { interest: 0, total: principal, days: 0 };
-    }
-
-    const start = new Date(newFD.startDate);
-    start.setHours(0,0,0,0);
-    const maturity = new Date(newFD.maturityDate);
-    maturity.setHours(0,0,0,0);
-
-    const diffTime = maturity.getTime() - start.getTime();
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-
-    if (diffDays <= 0) return { interest: 0, total: principal, days: 0 };
-
-    const interest = Math.round(principal * (rate / 100) * (diffDays / 365));
-
-    return {
-        interest,
-        total: principal + interest,
-        days: diffDays
-    };
-  }, [newFD.principal, newFD.interestRate, newFD.startDate, newFD.maturityDate]);
-
-  const [rolloverTarget, setRolloverTarget] = useState<FixedDeposit | null>(null);
+  const [rolloverTarget, setRolloverTarget] = useState<any | null>(null);
   const [rolloverInterest, setRolloverInterest] = useState<number>(0);
   const [rolloverNewRate, setRolloverNewRate] = useState<number>(4.0);
   const [rolloverDuration, setRolloverDuration] = useState<number>(3);
 
-  const [settleTarget, setSettleTarget] = useState<FixedDeposit | null>(null);
+  const [settleTarget, setSettleTarget] = useState<any | null>(null);
   const [settleFinalInterest, setSettleFinalInterest] = useState<number>(0);
   const [settleDestId, setSettleDestId] = useState<string>('');
 
-  const BANKS = ['HSBC', 'Standard Chartered', 'BOC', 'Hang Seng', 'Citibank', 'Mox', 'ZA Bank', 'CommSec'];
+  const estimation = useMemo(() => {
+    const principal = Number(newFD.principal) || 0;
+    const rate = Number(newFD.interestRate) || 0;
+    if (!newFD.startDate || !newFD.maturityDate || principal <= 0) return { interest: 0, total: principal, days: 0 };
+    const start = new Date(newFD.startDate);
+    const maturity = new Date(newFD.maturityDate);
+    const diffDays = Math.ceil((maturity.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
+    if (diffDays <= 0) return { interest: 0, total: principal, days: 0 };
+    const interest = Math.round(principal * (rate / 100) * (diffDays / 365));
+    return { interest, total: principal + interest, days: diffDays };
+  }, [newFD.principal, newFD.interestRate, newFD.startDate, newFD.maturityDate]);
+
+  const bankOptions = useMemo(() => {
+      const userBanks = accounts.filter(acc => acc.type === 'Cash').map(acc => acc.name);
+      return Array.from(new Set(['HSBC', 'Standard Chartered', 'BOC', 'Hang Seng', 'Citibank', 'Mox', 'ZA Bank', 'BOQ', ...userBanks]));
+  }, [accounts]);
 
   const handleAdd = () => {
     if (!newFD.principal || !newFD.maturityDate) return;
-    const fd: FixedDeposit = {
+    const fd: any = {
         id: Date.now().toString(),
         bankName: newFD.bankName || 'Other',
         principal: Number(newFD.principal),
@@ -74,21 +63,15 @@ const FDManager: React.FC<FDManagerProps> = ({ fds, accounts, onUpdate, onSettle
         maturityDate: newFD.maturityDate,
         actionOnMaturity: newFD.actionOnMaturity as 'Renew' | 'Transfer Out',
         interestRate: Number(newFD.interestRate),
-        autoRoll: newFD.autoRoll || false
+        autoRoll: newFD.autoRoll || false,
+        type: newFD.type || 'Fixed'
     };
     onUpdate([...fds, fd]);
     setIsAdding(false);
-    setNewFD({ 
-        bankName: 'HSBC', 
-        currency: 'HKD', 
-        actionOnMaturity: 'Renew', 
-        autoRoll: true, 
-        interestRate: 4.0,
-        startDate: new Date().toISOString().split('T')[0]
-    });
+    setNewFD({ ...newFD, principal: undefined, maturityDate: undefined });
   };
 
-  const openRolloverModal = (fd: FixedDeposit) => {
+  const openRolloverModal = (fd: any) => {
       const estimatedInt = calculateSimpleInterest(fd.principal, fd.interestRate || 0, 3);
       setRolloverTarget(fd);
       setRolloverInterest(estimatedInt);
@@ -98,18 +81,17 @@ const FDManager: React.FC<FDManagerProps> = ({ fds, accounts, onUpdate, onSettle
 
   const confirmRollover = () => {
       if (!rolloverTarget) return;
+      
+      // 這裡體現你的需求：
+      // 如果 rolloverInterest 保持為計算出來的值 (如 10)，新本金變 5010 (複利)
+      // 如果用戶在 Modal 手動改成 0，新本金維持 5000 (不計複利)
       const newPrincipal = rolloverTarget.principal + Number(rolloverInterest);
+      
       const d = new Date(); 
       d.setMonth(d.getMonth() + Number(rolloverDuration));
       const updatedFDs = fds.map(fd => {
           if (fd.id === rolloverTarget.id) {
-              return {
-                  ...fd,
-                  principal: newPrincipal,
-                  interestRate: Number(rolloverNewRate),
-                  maturityDate: d.toISOString(),
-                  autoRoll: true 
-              };
+              return { ...fd, principal: newPrincipal, interestRate: Number(rolloverNewRate), maturityDate: d.toISOString() };
           }
           return fd;
       });
@@ -117,7 +99,7 @@ const FDManager: React.FC<FDManagerProps> = ({ fds, accounts, onUpdate, onSettle
       setRolloverTarget(null);
   };
 
-  const openSettleModal = (fd: FixedDeposit) => {
+  const openSettleModal = (fd: any) => {
       const estimatedInt = calculateSimpleInterest(fd.principal, fd.interestRate || 0, 3);
       setSettleTarget(fd);
       setSettleFinalInterest(estimatedInt);
@@ -127,226 +109,112 @@ const FDManager: React.FC<FDManagerProps> = ({ fds, accounts, onUpdate, onSettle
 
   const confirmSettle = () => {
       if (!settleTarget || !settleDestId) return;
-      const finalAmount = settleTarget.principal + Number(settleFinalInterest);
-      onSettle(settleTarget.id, settleDestId, finalAmount);
+      
+      // 關鍵邏輯修改：
+      // 如果是活期 (Savings)，最終轉入金額 = 僅利息 (例如 10)
+      // 如果是定期 (Fixed)，最終轉入金額 = 本金 + 利息 (原本邏輯)
+      const finalTransferAmount = settleTarget.type === 'Savings' 
+        ? Number(settleFinalInterest) 
+        : settleTarget.principal + Number(settleFinalInterest);
+
+      onSettle(settleTarget.id, settleDestId, finalTransferAmount);
       setSettleTarget(null);
   };
-
-  const sortedFDs = [...fds].sort((a, b) => new Date(a.maturityDate).getTime() - new Date(b.maturityDate).getTime());
 
   return (
     <div className="p-6 pb-24 relative">
       <div className="flex justify-between items-center mb-6">
           <h1 className="text-2xl font-bold text-gray-800">Fixed Deposits</h1>
-          <button onClick={() => setIsAdding(!isAdding)} className="bg-gray-100 p-2 rounded-full hover:bg-gray-200">
-              <Plus className={`w-6 h-6 text-gray-600 transition-transform ${isAdding ? 'rotate-45' : ''}`} />
+          <button onClick={() => setIsAdding(!isAdding)} className="bg-gray-100 p-2 rounded-full">
+             <Plus className={`w-6 h-6 text-gray-600 transition-transform ${isAdding ? 'rotate-45' : ''}`} />
           </button>
       </div>
 
       {/* --- ADD NEW FORM --- */}
       {isAdding && (
-          <div className="bg-white p-5 rounded-2xl shadow-xl border border-gray-100 mb-6 animate-in slide-in-from-top-4 fade-in">
-              <h3 className="font-bold text-gray-700 mb-4 flex items-center">
-                  <Plus className="w-4 h-4 mr-2 text-[#0052CC]" /> New Deposit Setup
-              </h3>
-              
+          <div className="bg-white p-5 rounded-2xl shadow-xl border border-gray-100 mb-6 animate-in slide-in-from-top-4">
+              <div className="flex bg-gray-100 p-1 rounded-xl mb-4">
+                  <button onClick={() => setNewFD({...newFD, type: 'Fixed'})} className={`flex-1 py-2 text-xs font-bold rounded-lg ${newFD.type === 'Fixed' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-400'}`}>定期 (外存)</button>
+                  <button onClick={() => setNewFD({...newFD, type: 'Savings'})} className={`flex-1 py-2 text-xs font-bold rounded-lg ${newFD.type === 'Savings' ? 'bg-white text-green-600 shadow-sm' : 'text-gray-400'}`}>活期 (戶口內)</button>
+              </div>
               <div className="space-y-4">
-                  <div>
-                      <label className="text-xs font-bold text-gray-400 uppercase">Bank / Institution</label>
-                      <select 
-                        className="w-full bg-gray-50 p-3 rounded-xl mt-1 font-bold text-gray-700 outline-none focus:ring-2 focus:ring-blue-100"
-                        value={newFD.bankName}
-                        onChange={(e) => setNewFD({...newFD, bankName: e.target.value})}
-                      >
-                          {BANKS.map(b => <option key={b} value={b}>{b}</option>)}
+                  <select className="w-full bg-gray-50 p-3 rounded-xl font-bold" value={newFD.bankName} onChange={(e) => setNewFD({...newFD, bankName: e.target.value})}>
+                      {bankOptions.map(b => <option key={b} value={b}>{b}</option>)}
+                  </select>
+                  <div className="flex gap-2">
+                      <input type="number" className="flex-1 bg-gray-50 p-3 rounded-xl font-bold" placeholder="Principal" onChange={(e) => setNewFD({...newFD, principal: Number(e.target.value)})} />
+                      <select className="w-24 bg-gray-50 p-3 rounded-xl font-bold" value={newFD.currency} onChange={(e) => setNewFD({...newFD, currency: e.target.value as Currency})}>
+                          <option value="HKD">HKD</option><option value="AUD">AUD</option><option value="USD">USD</option>
                       </select>
                   </div>
-
-                  <div className="flex space-x-3">
-                     <div className="flex-1">
-                        <label className="text-xs font-bold text-gray-400 uppercase">Principal</label>
-                        <input 
-                            type="number" 
-                            className="w-full bg-gray-50 p-3 rounded-xl mt-1 font-roboto font-bold text-gray-800 outline-none focus:ring-2 focus:ring-blue-100"
-                            placeholder="100000"
-                            onChange={(e) => setNewFD({...newFD, principal: Number(e.target.value)})}
-                        />
-                     </div>
-                     <div className="w-24">
-                        <label className="text-xs font-bold text-gray-400 uppercase">Currency</label>
-                        <select 
-                            className="w-full bg-gray-50 p-3 rounded-xl mt-1 font-bold text-gray-700 outline-none"
-                            value={newFD.currency}
-                            onChange={(e) => setNewFD({...newFD, currency: e.target.value as Currency})}
-                        >
-                            <option value="HKD">HKD</option>
-                            <option value="AUD">AUD</option>
-                            <option value="USD">USD</option>
-                        </select>
-                     </div>
+                  <div className="grid grid-cols-2 gap-2">
+                      <input type="number" step="0.01" className="bg-gray-50 p-3 rounded-xl font-bold" value={newFD.interestRate} onChange={(e) => setNewFD({...newFD, interestRate: Number(e.target.value)})} />
+                      <input type="date" className="bg-gray-50 p-3 rounded-xl" value={newFD.startDate} onChange={(e) => setNewFD({...newFD, startDate: e.target.value})} />
                   </div>
-
-                  {/* 優化後的日期與利率佈局 */}
-                  <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <label className="text-xs font-bold text-gray-400 uppercase">Rate (%)</label>
-                        <input 
-                            type="number" 
-                            step="0.01"
-                            className="w-full bg-gray-50 p-3 rounded-xl mt-1 font-roboto font-bold text-gray-800 outline-none focus:ring-2 focus:ring-blue-100"
-                            placeholder="4.0"
-                            value={newFD.interestRate}
-                            onChange={(e) => setNewFD({...newFD, interestRate: Number(e.target.value)})}
-                        />
+                  <input type="date" className="w-full bg-gray-50 p-3 rounded-xl" onChange={(e) => setNewFD({...newFD, maturityDate: e.target.value})} />
+                  
+                  <div className={`p-4 rounded-xl border ${newFD.type === 'Savings' ? 'bg-green-50 border-green-100' : 'bg-blue-50 border-blue-100'}`}>
+                      <div className="flex justify-between text-[10px] font-bold text-gray-400 uppercase">
+                          <span>Est. Interest</span>
+                          {newFD.type === 'Savings' && <span className="text-green-600 flex items-center font-black"><EyeOff className="w-2 h-2 mr-1"/>不重複計入淨值</span>}
                       </div>
-                      <div>
-                          <label className="text-xs font-bold text-gray-400 uppercase">Start Date</label>
-                          <input 
-                            type="date" 
-                            className="w-full bg-gray-50 p-3 rounded-xl mt-1 font-medium text-gray-700 outline-none focus:ring-2 focus:ring-blue-100"
-                            value={newFD.startDate}
-                            onChange={(e) => setNewFD({...newFD, startDate: e.target.value})}
-                          />
+                      <div className="flex justify-between font-black mt-1">
+                          <span className="text-green-600">+{estimation.interest.toLocaleString()}</span>
+                          <span className="text-blue-700">{newFD.type === 'Savings' ? '利息結算後撥入' : estimation.total.toLocaleString()}</span>
                       </div>
                   </div>
-
-                  <div>
-                      <label className="text-xs font-bold text-gray-400 uppercase">Maturity Date</label>
-                      <input 
-                        type="date" 
-                        className="w-full bg-gray-50 p-3 rounded-xl mt-1 font-medium text-gray-700 outline-none focus:ring-2 focus:ring-blue-100"
-                        onChange={(e) => setNewFD({...newFD, maturityDate: e.target.value})}
-                      />
-                  </div>
-
-                  {/* --- Live Interest Calculation --- */}
-                  <div className="bg-gradient-to-br from-gray-50 to-blue-50/50 p-4 rounded-xl border border-blue-100 relative overflow-hidden">
-                      <div className="flex justify-between items-center mb-1">
-                          <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest flex items-center">
-                              <Calculator className="w-3 h-3 mr-1" /> Est. Interest ({estimation.days} days)
-                          </div>
-                          <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Total Maturity</div>
-                      </div>
-                      <div className="flex justify-between items-end">
-                          <div className="text-xl font-black text-green-600 flex items-center">
-                              +{estimation.interest.toLocaleString()}
-                              <span className="text-[10px] font-bold text-green-400 ml-1">{newFD.currency}</span>
-                          </div>
-                          <div className="text-xl font-black text-blue-700 flex items-center">
-                              {estimation.total.toLocaleString()}
-                              <span className="text-[10px] font-bold text-blue-400 ml-1">{newFD.currency}</span>
-                          </div>
-                      </div>
-                  </div>
-
-                  <div className="bg-gray-50 p-3 rounded-xl flex items-center justify-between">
-                      <span className="text-xs font-bold text-gray-400 uppercase">Action</span>
-                      <div className="flex bg-gray-200 rounded-lg p-1">
-                          <button 
-                            onClick={() => setNewFD({...newFD, actionOnMaturity: 'Renew'})}
-                            className={`px-3 py-1 text-xs font-bold rounded-md transition-all ${newFD.actionOnMaturity === 'Renew' ? 'bg-white text-[#0052CC] shadow-sm' : 'text-gray-500'}`}
-                          >
-                              Renew
-                          </button>
-                          <button 
-                             onClick={() => setNewFD({...newFD, actionOnMaturity: 'Transfer Out'})}
-                             className={`px-3 py-1 text-xs font-bold rounded-md transition-all ${newFD.actionOnMaturity === 'Transfer Out' ? 'bg-white text-orange-500 shadow-sm' : 'text-gray-500'}`}
-                          >
-                              Transfer
-                          </button>
-                      </div>
-                  </div>
-
-                  <button 
-                    onClick={handleAdd}
-                    className="w-full bg-[#0052CC] text-white font-bold py-3.5 rounded-xl shadow-lg active:scale-95 transition-transform mt-2"
-                  >
-                      Create Snapshot
-                  </button>
+                  <button onClick={handleAdd} className="w-full bg-[#0052CC] text-white font-bold py-3.5 rounded-xl">建立存款紀錄</button>
               </div>
           </div>
       )}
 
       {/* --- LIST --- */}
       <div className="space-y-4">
-          {sortedFDs.map(fd => {
-              const today = new Date();
-              today.setHours(0,0,0,0);
-              const matDate = new Date(fd.maturityDate);
-              matDate.setHours(0,0,0,0);
-
-              const daysLeft = Math.ceil((matDate.getTime() - today.getTime()) / (1000 * 3600 * 24));
+          {[...fds].sort((a,b) => new Date(a.maturityDate).getTime() - new Date(b.maturityDate).getTime()).map((fd: any) => {
+              const daysLeft = Math.ceil((new Date(fd.maturityDate).getTime() - new Date().setHours(0,0,0,0)) / (1000*3600*24));
               const isMatured = daysLeft <= 0;
-              const isUrgent = daysLeft <= 30 && !isMatured;
               
-              let statusColor = "bg-green-100 text-green-700";
-              let statusText = `${daysLeft} days left`;
-              
-              if (isMatured) {
-                  statusColor = "bg-[#FF5252] text-white";
-                  statusText = "MATURED";
-              } else if (isUrgent) {
-                  statusColor = "bg-[#FFC107] text-yellow-800";
-                  statusText = `${daysLeft} days left`;
-              }
-
               return (
-                <div key={fd.id} className={`bg-white rounded-2xl border-l-[6px] shadow-sm relative overflow-visible transition-transform ${isMatured ? 'border-l-[#FF5252] ring-2 ring-red-50' : (isUrgent ? 'border-l-[#FFC107]' : 'border-l-[#4CAF50]')}`}>
+                <div key={fd.id} className={`bg-white rounded-2xl border-l-[6px] shadow-sm ${isMatured ? 'border-l-red-500' : (fd.type === 'Savings' ? 'border-l-green-400' : 'border-l-blue-500')}`}>
                     <div className="p-4">
-                        <div className="flex justify-between items-start mb-2">
+                        <div className="flex justify-between items-start mb-3">
                             <div>
-                                <div className="text-xs font-bold text-gray-400 mb-0.5">{fd.bankName}</div>
-                                <div className="text-xl font-roboto font-bold text-gray-800">
-                                    {fd.currency === 'HKD' ? '$' : fd.currency} {fd.principal.toLocaleString()}
+                                <div className="flex items-center gap-1.5 mb-0.5">
+                                    <span className="text-xs font-bold text-gray-400">{fd.bankName}</span>
+                                    {fd.type === 'Savings' && (
+                                        <span className="bg-green-100 text-green-700 text-[9px] px-1.5 py-0.5 rounded font-black flex items-center">
+                                            <EyeOff className="w-2 h-2 mr-1"/>內部資金（不計入總額）
+                                        </span>
+                                    )}
                                 </div>
+                                <div className="text-xl font-bold text-gray-800">{fd.currency === 'HKD' ? '$' : fd.currency} {fd.principal.toLocaleString()}</div>
                             </div>
-                            <div className={`px-2 py-1 rounded-lg text-[10px] font-bold uppercase ${statusColor}`}>
-                                {statusText}
-                            </div>
-                        </div>
-
-                        <div className="flex items-center space-x-4 text-xs font-medium text-gray-500 mb-4">
-                            <div className="flex items-center">
-                                <Percent className="w-3 h-3 mr-1 text-gray-400" />
-                                {fd.interestRate}% p.a.
-                            </div>
-                            <div className="flex items-center">
-                                <Clock className="w-3 h-3 mr-1 text-gray-400" />
-                                {new Date(fd.maturityDate).toLocaleDateString()}
+                            <div className={`px-2 py-1 rounded text-[10px] font-bold ${isMatured ? 'bg-red-500 text-white' : 'bg-gray-100 text-gray-500'}`}>
+                                {isMatured ? 'MATURED' : `${daysLeft}d left`}
                             </div>
                         </div>
 
-                        <div className="flex space-x-2">
+                        <div className="flex gap-4 text-xs font-bold text-gray-500 mb-4">
+                            <span className="flex items-center"><Percent className="w-3 h-3 mr-1" />{fd.interestRate}%</span>
+                            <span className="flex items-center"><Clock className="w-3 h-3 mr-1" />{new Date(fd.maturityDate).toLocaleDateString()}</span>
+                        </div>
+
+                        <div className="flex gap-2">
                             {isMatured ? (
                                 <>
-                                  <button 
-                                    onClick={() => openRolloverModal(fd)}
-                                    className="flex-1 bg-[#0052CC] text-white text-xs font-bold py-3 rounded-xl flex items-center justify-center shadow-md active:scale-95 transition-transform"
-                                  >
-                                      <RefreshCw className="w-3.5 h-3.5 mr-1.5" />
-                                      Renew
-                                  </button>
-                                  <button 
-                                    onClick={() => openSettleModal(fd)}
-                                    className="flex-1 bg-white border-2 border-orange-100 text-orange-600 text-xs font-bold py-3 rounded-xl flex items-center justify-center shadow-sm hover:bg-orange-50 active:scale-95 transition-all"
-                                  >
-                                      <Download className="w-3.5 h-3.5 mr-1.5" />
-                                      Cash Out
-                                  </button>
+                                    <button onClick={() => openRolloverModal(fd)} className="flex-1 bg-[#0052CC] text-white text-xs font-bold py-3 rounded-xl flex items-center justify-center">
+                                        <RefreshCw className="w-3 h-3 mr-1.5" /> Renew
+                                    </button>
+                                    <button onClick={() => openSettleModal(fd)} className="flex-1 bg-orange-50 border border-orange-100 text-orange-600 text-xs font-bold py-3 rounded-xl flex items-center justify-center">
+                                        <Download className="w-3 h-3 mr-1.5" /> {fd.type === 'Savings' ? 'Cash Out Interest' : 'Settle All'}
+                                    </button>
                                 </>
                             ) : (
-                                <button 
-                                  onClick={() => openRolloverModal(fd)}
-                                  className="flex-1 bg-gray-50 text-gray-600 text-xs font-bold py-3 rounded-xl hover:bg-gray-100 transition-colors"
-                                >
-                                    Manage / Renew
+                                <button onClick={() => openRolloverModal(fd)} className="flex-1 bg-gray-50 text-gray-600 text-xs font-bold py-3 rounded-xl">
+                                    Manage / Edit
                                 </button>
                             )}
-                            
-                            <button 
-                                onClick={() => onUpdate(fds.filter(f => f.id !== fd.id))}
-                                className="w-12 bg-white border border-gray-100 text-gray-400 rounded-xl flex items-center justify-center hover:text-red-500 hover:border-red-100 transition-colors"
-                            >
+                            <button onClick={() => onUpdate(fds.filter(f => f.id !== fd.id))} className="w-12 bg-white border border-gray-100 text-gray-400 rounded-xl flex items-center justify-center hover:text-red-500">
                                 <Trash2 className="w-4 h-4" />
                             </button>
                         </div>
@@ -356,165 +224,75 @@ const FDManager: React.FC<FDManagerProps> = ({ fds, accounts, onUpdate, onSettle
           })}
       </div>
 
-      {/* --- ROLLOVER CONFIRMATION MODAL --- */}
+      {/* --- ROLLOVER MODAL --- */}
       {rolloverTarget && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
-            <div className="absolute inset-0 bg-black/60 backdrop-blur-sm transition-opacity" onClick={() => setRolloverTarget(null)} />
-            
-            <div className="bg-white w-full max-w-sm rounded-3xl p-6 relative z-10 animate-in zoom-in-95 duration-200 shadow-2xl">
-                <button onClick={() => setRolloverTarget(null)} className="absolute top-4 right-4 text-gray-400 hover:text-gray-600">
-                    <X className="w-6 h-6" />
-                </button>
-
+        <div className="fixed inset-0 z-50 flex items-center justify-center px-4 bg-black/60 backdrop-blur-sm">
+            <div className="bg-white w-full max-w-sm rounded-3xl p-6 relative animate-in zoom-in-95">
+                <button onClick={() => setRolloverTarget(null)} className="absolute top-4 right-4 text-gray-400"><X /></button>
                 <div className="text-center mb-6">
-                    <div className="w-12 h-12 bg-blue-50 rounded-full flex items-center justify-center mx-auto mb-3 text-[#0052CC]">
-                        <RefreshCw className="w-6 h-6" />
-                    </div>
-                    <h2 className="text-xl font-bold text-gray-800">Rollover & Compound</h2>
-                    <p className="text-xs text-gray-400 mt-1">Reinvesting your capital plus interest.</p>
+                    <div className="w-12 h-12 bg-blue-50 rounded-full flex items-center justify-center mx-auto mb-2 text-[#0052CC]"><RefreshCw /></div>
+                    <h2 className="text-xl font-bold">續期 / 複利管理</h2>
+                    <p className="text-[11px] text-gray-400">若不要複利（本金維持原金額），請將利息設為 0</p>
                 </div>
-
-                <div className="bg-gray-50 rounded-2xl p-4 space-y-3 mb-6 border border-gray-100">
-                    <div className="flex justify-between text-sm">
-                        <span className="text-gray-500">Principal</span>
-                        <span className="font-bold text-gray-800">${rolloverTarget.principal.toLocaleString()}</span>
+                <div className="bg-gray-50 p-4 rounded-2xl mb-6 space-y-2">
+                    <div className="flex justify-between text-sm"><span>現有本金</span><span className="font-bold">${rolloverTarget.principal.toLocaleString()}</span></div>
+                    <div className="flex justify-between items-center text-sm text-green-600">
+                        <span>加入複利</span>
+                        <input type="number" value={rolloverInterest} onChange={(e) => setRolloverInterest(Number(e.target.value))} className="w-20 text-right bg-white border rounded px-1 font-bold outline-none" />
                     </div>
-                    <div className="flex justify-between items-center text-sm">
-                        <span className="text-gray-500 flex items-center"><Plus className="w-3 h-3 mr-1"/> Interest Earned</span>
-                        <div className="flex items-center bg-white border border-green-200 rounded px-2 py-0.5">
-                            <span className="text-green-600 font-bold mr-1">$</span>
-                            <input 
-                                type="number" 
-                                value={rolloverInterest}
-                                onChange={(e) => setRolloverInterest(Number(e.target.value))}
-                                className="w-16 text-right font-bold text-green-600 outline-none text-sm"
-                            />
-                        </div>
-                    </div>
-                    <div className="h-px bg-gray-200 w-full" />
-                    <div className="flex justify-between items-center text-lg">
-                        <span className="font-bold text-[#0052CC]">New Principal</span>
-                        <span className="font-bold text-[#0052CC] font-roboto">
-                            ${(rolloverTarget.principal + Number(rolloverInterest)).toLocaleString()}
-                        </span>
-                    </div>
+                    <div className="border-t pt-2 flex justify-between font-bold text-[#0052CC]"><span>新一期本金</span><span>${(rolloverTarget.principal + rolloverInterest).toLocaleString()}</span></div>
                 </div>
-
+                {/* ...其餘續期欄位... */}
                 <div className="space-y-4 mb-6">
-                    <div>
-                        <label className="text-xs font-bold text-gray-400 uppercase mb-1 block">Confirm New Rate (%)</label>
-                        <div className="relative">
-                            <input 
-                                type="number" 
-                                value={rolloverNewRate}
-                                onChange={(e) => setRolloverNewRate(Number(e.target.value))}
-                                className="w-full bg-gray-50 p-3 rounded-xl font-bold text-gray-800 outline-none focus:ring-2 focus:ring-[#0052CC]" 
-                            />
-                            <Percent className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                        </div>
-                    </div>
-
-                    <div>
-                        <label className="text-xs font-bold text-gray-400 uppercase mb-1 block">Duration</label>
-                        <div className="grid grid-cols-4 gap-2">
-                            {[1, 3, 6, 12].map(m => (
-                                <button
-                                  key={m}
-                                  onClick={() => setRolloverDuration(m)}
-                                  className={`py-2 rounded-lg text-sm font-bold transition-all ${rolloverDuration === m ? 'bg-[#0052CC] text-white shadow-md' : 'bg-gray-50 text-gray-500 hover:bg-gray-100'}`}
-                                >
-                                    {m}M
-                                </button>
-                            ))}
-                        </div>
+                    <input type="number" value={rolloverNewRate} onChange={(e) => setRolloverNewRate(Number(e.target.value))} className="w-full bg-gray-50 p-3 rounded-xl font-bold" placeholder="新利率 %" />
+                    <div className="grid grid-cols-4 gap-2">
+                        {[1, 3, 6, 12].map(m => (
+                            <button key={m} onClick={() => setRolloverDuration(m)} className={`py-2 rounded-lg text-sm font-bold ${rolloverDuration === m ? 'bg-[#0052CC] text-white' : 'bg-gray-50 text-gray-500'}`}>{m}M</button>
+                        ))}
                     </div>
                 </div>
-
-                <button 
-                  onClick={confirmRollover}
-                  className="w-full bg-[#0052CC] text-white font-bold py-4 rounded-xl shadow-xl shadow-blue-200 active:scale-95 transition-all flex items-center justify-center"
-                >
-                    <Check className="w-5 h-5 mr-2" />
-                    Confirm & Renew
-                </button>
+                <button onClick={confirmRollover} className="w-full bg-[#0052CC] text-white font-bold py-4 rounded-xl shadow-lg">確認續期</button>
             </div>
         </div>
       )}
 
-      {/* --- SETTLE (CASH OUT) MODAL --- */}
+      {/* --- SETTLE MODAL --- */}
       {settleTarget && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
-            <div className="absolute inset-0 bg-black/60 backdrop-blur-sm transition-opacity" onClick={() => setSettleTarget(null)} />
-            
-            <div className="bg-white w-full max-w-sm rounded-3xl p-6 relative z-10 animate-in zoom-in-95 duration-200 shadow-2xl">
-                <button onClick={() => setSettleTarget(null)} className="absolute top-4 right-4 text-gray-400 hover:text-gray-600">
-                    <X className="w-6 h-6" />
-                </button>
-
+        <div className="fixed inset-0 z-50 flex items-center justify-center px-4 bg-black/60 backdrop-blur-sm">
+            <div className="bg-white w-full max-w-sm rounded-3xl p-6 relative animate-in zoom-in-95">
+                <button onClick={() => setSettleTarget(null)} className="absolute top-4 right-4 text-gray-400"><X /></button>
                 <div className="text-center mb-6">
-                    <div className="w-12 h-12 bg-orange-50 rounded-full flex items-center justify-center mx-auto mb-3 text-orange-500">
-                        <Landmark className="w-6 h-6" />
-                    </div>
-                    <h2 className="text-xl font-bold text-gray-800">Maturity Settlement</h2>
-                    <p className="text-xs text-gray-400 mt-1">Funds will be released to your account.</p>
+                    <div className="w-12 h-12 bg-orange-50 rounded-full flex items-center justify-center mx-auto mb-2 text-orange-500"><Landmark /></div>
+                    <h2 className="text-xl font-bold">結算利息</h2>
                 </div>
-
-                <div className="bg-gray-50 rounded-2xl p-4 space-y-3 mb-6 border border-gray-100">
-                    <div className="flex justify-between text-sm">
-                        <span className="text-gray-500">Principal</span>
-                        <span className="font-bold text-gray-800">${settleTarget.principal.toLocaleString()}</span>
+                <div className="bg-gray-50 p-4 rounded-2xl mb-4 space-y-2">
+                    <div className="flex justify-between text-sm text-gray-400"><span>存款本金 (不變)</span><span>${settleTarget.principal.toLocaleString()}</span></div>
+                    <div className="flex justify-between items-center text-sm text-green-600 font-bold">
+                        <span>實收利息</span>
+                        <input type="number" value={settleFinalInterest} onChange={(e) => setSettleFinalInterest(Number(e.target.value))} className="w-24 text-right bg-white border rounded px-1 outline-none" />
                     </div>
-                    <div className="flex justify-between items-center text-sm">
-                        <span className="text-gray-500 flex items-center"><Plus className="w-3 h-3 mr-1"/> Interest (Final)</span>
-                        <div className="flex items-center bg-white border border-green-200 rounded px-2 py-0.5">
-                            <span className="text-green-600 font-bold mr-1">$</span>
-                            <input 
-                                type="number" 
-                                value={settleFinalInterest}
-                                onChange={(e) => setSettleFinalInterest(Number(e.target.value))}
-                                className="w-20 text-right font-bold text-green-600 outline-none text-sm"
-                            />
-                        </div>
+                    <div className="border-t pt-2 flex justify-between font-bold text-orange-600">
+                        <span>{settleTarget.type === 'Savings' ? '預計撥入利息' : '總回收金額'}</span>
+                        <span>${(settleTarget.type === 'Savings' ? settleFinalInterest : settleTarget.principal + settleFinalInterest).toLocaleString()}</span>
                     </div>
-                    <div className="h-px bg-gray-200 w-full" />
-                    <div className="flex justify-between items-center text-lg">
-                        <span className="font-bold text-orange-600">Total to Deposit</span>
-                        <span className="font-bold text-orange-600 font-roboto">
-                            ${(settleTarget.principal + Number(settleFinalInterest)).toLocaleString()}
-                        </span>
-                    </div>
+                </div>
+                
+                <div className={`p-3 rounded-xl text-[11px] mb-6 flex gap-2 ${settleTarget.type === 'Savings' ? 'bg-green-50 text-green-700 border border-green-100' : 'bg-blue-50 text-blue-700 border border-blue-100'}`}>
+                    <Info className="w-4 h-4 shrink-0" />
+                    <span>
+                        {settleTarget.type === 'Savings' 
+                            ? "活期模式：本金已在銀行戶口內，系統僅將利息部分撥入銀行餘額。" 
+                            : "定期模式：本金與利息將全數撥回銀行帳戶餘額。"}
+                    </span>
                 </div>
 
                 <div className="mb-6">
-                    <label className="text-xs font-bold text-gray-400 uppercase mb-1 block">Deposit To</label>
-                    <select 
-                      value={settleDestId}
-                      onChange={(e) => setSettleDestId(e.target.value)}
-                      className="w-full bg-gray-50 p-4 rounded-xl font-bold text-gray-800 outline-none focus:ring-2 focus:ring-orange-100"
-                    >
-                        {accounts.map(acc => (
-                            <option key={acc.id} value={acc.id}>
-                                {acc.name} ({acc.currency} {acc.type})
-                            </option>
-                        ))}
+                    <label className="text-[10px] font-bold text-gray-400 uppercase mb-1 block">入賬戶口</label>
+                    <select value={settleDestId} onChange={(e) => setSettleDestId(e.target.value)} className="w-full bg-gray-50 p-4 rounded-xl font-bold">
+                        {accounts.map(acc => <option key={acc.id} value={acc.id}>{acc.name} ({acc.currency})</option>)}
                     </select>
-                    {settleDestId && (() => {
-                        const sel = accounts.find(a => a.id === settleDestId);
-                        return sel && sel.currency !== settleTarget.currency ? (
-                            <div className="flex items-center text-xs text-orange-500 mt-2 font-medium">
-                                <AlertCircle className="w-3 h-3 mr-1" /> Currency mismatch ({settleTarget.currency} to {sel.currency})
-                            </div>
-                        ) : null;
-                    })()}
                 </div>
-
-                <button 
-                  onClick={confirmSettle}
-                  className="w-full bg-orange-500 text-white font-bold py-4 rounded-xl shadow-xl shadow-orange-200 active:scale-95 transition-all flex items-center justify-center hover:bg-orange-600"
-                >
-                    <Check className="w-5 h-5 mr-2" />
-                    Confirm Transfer
-                </button>
+                <button onClick={confirmSettle} className="w-full bg-orange-500 text-white font-bold py-4 rounded-xl shadow-lg">確認結算利息</button>
             </div>
         </div>
       )}

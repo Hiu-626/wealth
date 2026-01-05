@@ -22,8 +22,16 @@ const Overview: React.FC<OverviewProps> = ({
   const [showInAUD, setShowInAUD] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
 
-  // --- Total Calculation ---
-  const totalHKD = useMemo(() => calculateTotalWealthHKD(accounts, fixedDeposits), [accounts, fixedDeposits]);
+  // --- Total Calculation (關鍵修正點) ---
+  const totalHKD = useMemo(() => {
+    // 核心邏輯：在計算總資產時，必須過濾掉類型為 'Savings' 的存款
+    // 因為這筆錢 (例如 A$ 1,000) 實際上還留在 Banking 的餘額裡
+    const filteredFDs = fixedDeposits.filter(fd => fd.type !== 'Savings');
+    
+    // 使用過濾後的列表進行計算，防止 5100 + 1000 = 6100 的錯誤
+    return calculateTotalWealthHKD(accounts, filteredFDs);
+  }, [accounts, fixedDeposits]);
+
   const totalAUD = Math.round(totalHKD / MOCK_RATES.AUD);
 
   const daysSinceUpdate = Math.floor((new Date().getTime() - new Date(lastUpdated).getTime()) / (1000 * 3600 * 24));
@@ -60,7 +68,7 @@ const Overview: React.FC<OverviewProps> = ({
   }, [accounts]);
 
 
-  // --- FD Logic ---
+  // --- FD Logic (Urgent Tasks 依然顯示所有快到期的項目，包含活期) ---
   const urgentFDs = fixedDeposits.filter(fd => {
     const daysLeft = Math.ceil((new Date(fd.maturityDate).getTime() - new Date().getTime()) / (1000 * 3600 * 24));
     return daysLeft <= 30;
@@ -101,7 +109,7 @@ const Overview: React.FC<OverviewProps> = ({
         </button>
       </div>
 
-      {/* Total Wealth Card */}
+      {/* Total Wealth Card (現在會正確顯示 $5,100 而非 $6,100) */}
       <div 
         className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100 active:scale-95 transition-transform cursor-pointer"
         onClick={() => setShowInAUD(!showInAUD)}
@@ -122,9 +130,7 @@ const Overview: React.FC<OverviewProps> = ({
       <div>
         <div className="flex justify-between items-center mb-3">
           <h2 className="text-lg font-bold text-gray-800">Urgent Tasks</h2>
-          {urgentFDs.length === 0 && (
-             <button onClick={onNavigateToFD} className="text-sm text-[#0052CC] font-medium">Manage FDs</button>
-          )}
+          <button onClick={onNavigateToFD} className="text-sm text-[#0052CC] font-medium">Manage FDs</button>
         </div>
 
         {urgentFDs.length === 0 ? (
@@ -148,6 +154,7 @@ const Overview: React.FC<OverviewProps> = ({
                   <div>
                     <div className="flex items-center space-x-2 mb-1">
                         <h3 className="font-bold text-gray-800">{fd.bankName}</h3>
+                        {fd.type === 'Savings' && <span className="text-[9px] bg-amber-100 text-amber-600 px-1 rounded font-black">SAVINGS</span>}
                         {isCritical && <span className="bg-red-100 text-red-600 text-[10px] px-2 py-0.5 rounded-full font-bold">EXPIRING</span>}
                     </div>
                     <p className="text-gray-500 text-sm font-roboto">
