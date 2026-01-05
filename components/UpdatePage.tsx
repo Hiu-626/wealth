@@ -62,7 +62,6 @@ const UpdatePage: React.FC<UpdatePageProps> = ({ accounts, onSave }) => {
   const [isSuccessModalOpen, setIsSuccessModalOpen] = useState(false);
   const [syncSummary, setSyncSummary] = useState({ totalNetWorth: 0, bankTotal: 0, stockTotal: 0, netChange: 0 });
   const [newAssetType, setNewAssetType] = useState<AccountType | null>(null);
-  // 加入了 currency 初始化
   const [newItemData, setNewItemData] = useState({ name: '', symbol: '', amount: '', currency: 'HKD' as Currency });
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [scannedItems, setScannedItems] = useState<ScannedAsset[]>([]);
@@ -151,8 +150,15 @@ const UpdatePage: React.FC<UpdatePageProps> = ({ accounts, onSave }) => {
              return { ...item, institution: finalName, price: livePrice || item.price || 0 };
            }));
            setScannedItems(processed);
+        } else {
+           alert("AI Analysis failed. Please retry later or input manually.");
         }
-      } finally { setIsAnalyzing(false); if(aiInputRef.current) aiInputRef.current.value = ""; }
+      } catch(e) {
+         alert("Error reading file.");
+      } finally { 
+         setIsAnalyzing(false); 
+         if(aiInputRef.current) aiInputRef.current.value = ""; 
+      }
     };
     reader.readAsDataURL(file);
   };

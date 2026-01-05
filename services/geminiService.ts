@@ -31,8 +31,9 @@ export interface ScannedAsset {
 
 /**
  * 自動重試機制
+ * 增強版：處理 Quota Exceeded 的等待時間 (指數退避)
  */
-const runWithRetry = async <T>(fn: () => Promise<T>, retries = 3, delay = 2000): Promise<T> => {
+const runWithRetry = async <T>(fn: () => Promise<T>, retries = 5, delay = 3000): Promise<T> => {
   try {
     return await fn();
   } catch (error: any) {
@@ -41,8 +42,9 @@ const runWithRetry = async <T>(fn: () => Promise<T>, retries = 3, delay = 2000):
     const isOverloaded = errorMsg.includes("503") || errorMsg.includes("overloaded");
 
     if ((isQuotaError || isOverloaded) && retries > 0) {
-      console.warn(`AI busy, retrying in ${delay}ms... (${retries} left)`);
+      console.warn(`AI busy (429/503), retrying in ${delay}ms... (${retries} left)`);
       await new Promise(resolve => setTimeout(resolve, delay));
+      // Exponential backoff: 3s -> 6s -> 12s -> 24s -> 48s
       return runWithRetry(fn, retries - 1, delay * 2);
     }
     throw error;
@@ -60,7 +62,7 @@ export const parseFinancialStatement = async (base64Data: string): Promise<Scann
   }
 
   try {
-    // 💡 修正：改用 'gemini-2.0-flash-exp'，這是目前速度最快且 Quota 較寬裕的模型，非常適合 OCR
+    // 💡 修正：使用 'gemini-flash-latest' 以獲得更穩定的 Quota 限制 (避免使用 Experimental 模型導致 429)
     const prompt = `
       Instructions:
       1. Analyze the attached financial statement image.
@@ -76,7 +78,7 @@ export const parseFinancialStatement = async (base64Data: string): Promise<Scann
     `;
 
     const response = await runWithRetry(() => ai.models.generateContent({
-      model: 'gemini-2.0-flash-exp',
+      model: 'gemini-flash-latest', 
       contents: {
         parts: [
           {
@@ -111,7 +113,7 @@ export const parseFinancialStatement = async (base64Data: string): Promise<Scann
     }
 
   } catch (error: any) {
-    // 這裡會捕獲 404, 403 等嚴重錯誤
+    // 這裡會捕獲 404, 403, 429 等嚴重錯誤
     console.error("Critical AI Error Details:", error);
     return null;
   }
