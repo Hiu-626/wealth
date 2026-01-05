@@ -3,7 +3,7 @@ import { Account, AccountType, Currency } from '../types';
 import { 
   Save, Plus, Loader2, TrendingUp, Building2, 
   Minus, ScanLine, CloudUpload, Sparkles, X, Trash2, CheckCircle2, Globe2,
-  Search, ArrowRight, Lightbulb, TrendingDown, RefreshCw
+  Search, ArrowRight, Lightbulb, TrendingDown, RefreshCw, Coins
 } from 'lucide-react';
 import { parseFinancialStatement, ScannedAsset } from '../services/geminiService';
 import Confetti from './Confetti';
@@ -62,7 +62,8 @@ const UpdatePage: React.FC<UpdatePageProps> = ({ accounts, onSave }) => {
   const [isSuccessModalOpen, setIsSuccessModalOpen] = useState(false);
   const [syncSummary, setSyncSummary] = useState({ totalNetWorth: 0, bankTotal: 0, stockTotal: 0, netChange: 0 });
   const [newAssetType, setNewAssetType] = useState<AccountType | null>(null);
-  const [newItemData, setNewItemData] = useState({ name: '', symbol: '', amount: '' });
+  // 加入了 currency 初始化
+  const [newItemData, setNewItemData] = useState({ name: '', symbol: '', amount: '', currency: 'HKD' as Currency });
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [scannedItems, setScannedItems] = useState<ScannedAsset[]>([]);
   const aiInputRef = useRef<HTMLInputElement>(null);
@@ -120,7 +121,6 @@ const UpdatePage: React.FC<UpdatePageProps> = ({ accounts, onSave }) => {
     } catch (e) { alert("Sync Failed"); } finally { setIsSaving(false); }
   };
 
-  // 新增：手動列表一鍵更新所有市價
   const handleUpdateAllPrices = async () => {
     setIsFetchingPreview(true);
     const updated = await Promise.all(localAccounts.map(async (acc) => {
@@ -170,24 +170,25 @@ const UpdatePage: React.FC<UpdatePageProps> = ({ accounts, onSave }) => {
 
       {activeTab === 'MANUAL' ? (
         <div className="space-y-8 animate-in fade-in">
-          {/* Bank Section */}
           <section>
             <div className="flex justify-between items-center mb-4 px-2">
               <h2 className="text-[10px] font-black text-gray-400 uppercase tracking-widest flex items-center"><Building2 size={14} className="mr-2" /> Bank</h2>
-              <button onClick={() => { setNewAssetType(AccountType.CASH); setIsModalOpen(true); }} className="text-blue-600 font-black text-xs">+ ADD</button>
+              <button onClick={() => { setNewAssetType(AccountType.CASH); setNewItemData(d => ({...d, currency: 'HKD'})); setIsModalOpen(true); }} className="text-blue-600 font-black text-xs">+ ADD</button>
             </div>
             {localAccounts.filter(a => a.type === AccountType.CASH).map(acc => (
               <div key={acc.id} className="bg-white p-5 rounded-3xl mb-3 flex justify-between items-center shadow-sm">
                 <div className="flex items-center gap-3">
                   <button onClick={() => setLocalAccounts(prev => prev.filter(p => p.id !== acc.id))} className="text-gray-200 hover:text-red-400"><Trash2 size={16}/></button>
-                  <span className="font-bold text-gray-700">{acc.name}</span>
+                  <div className="flex flex-col">
+                    <span className="font-bold text-gray-700">{acc.name}</span>
+                    <span className="text-[9px] font-black text-gray-400 uppercase">{acc.currency}</span>
+                  </div>
                 </div>
                 <input type="number" value={acc.balance} onChange={e => setLocalAccounts(prev => prev.map(p => p.id === acc.id ? {...p, balance: Number(e.target.value)} : p))} className="w-24 text-right font-black text-blue-600 bg-transparent outline-none" />
               </div>
             ))}
           </section>
 
-          {/* Stock Section */}
           <section>
             <div className="flex justify-between items-center mb-4 px-2">
               <h2 className="text-[10px] font-black text-gray-400 uppercase tracking-widest flex items-center"><TrendingUp size={14} className="mr-2" /> Stocks</h2>
@@ -234,7 +235,6 @@ const UpdatePage: React.FC<UpdatePageProps> = ({ accounts, onSave }) => {
           </button>
         </div>
       ) : (
-        /* AI Scanner 內容完全保留，未做任何刪減 */
         <div className="space-y-6 animate-in slide-in-from-bottom-4">
           <div onClick={() => !isAnalyzing && aiInputRef.current?.click()} className={`border-2 border-dashed rounded-[2.5rem] p-16 text-center transition-all ${isAnalyzing ? 'border-blue-300 bg-blue-50' : 'border-gray-300 bg-white cursor-pointer'}`}>
             <input type="file" ref={aiInputRef} className="hidden" accept="image/*" onChange={handleAIFileUpload} />
@@ -320,19 +320,40 @@ const UpdatePage: React.FC<UpdatePageProps> = ({ accounts, onSave }) => {
         </div>
       )}
 
-      {/* Manual Add Modal */}
+      {/* Manual Add Modal - 增加了 BANK 的貨幣功能 */}
       {isModalOpen && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-6 z-[9999] backdrop-blur-md">
           <div className="bg-white w-full max-w-sm rounded-[2.5rem] p-8 space-y-6">
             <div className="flex justify-between items-center">
-              <h3 className="font-black text-xl italic">Add {newAssetType === AccountType.STOCK ? 'Stock' : 'Bank'}</h3>
+              <h3 className="font-black text-xl italic uppercase tracking-tighter">Add {newAssetType === AccountType.STOCK ? 'Stock' : 'Bank'}</h3>
               <button onClick={() => { setIsModalOpen(false); setPreviewPrice(""); }} className="text-gray-300"><X size={24}/></button>
             </div>
             <div className="space-y-4">
+              
+              {/* 貨幣選擇器 - 僅針對銀行或作為股票預設 */}
               <div className="space-y-1">
-                <label className="text-[10px] font-black text-gray-400 uppercase">Symbol / Name</label>
+                <label className="text-[10px] font-black text-gray-400 uppercase flex items-center gap-1"><Coins size={10}/> Currency</label>
+                <div className="flex gap-2">
+                  {['HKD', 'USD', 'AUD'].map(curr => (
+                    <button 
+                      key={curr} 
+                      onClick={() => setNewItemData({...newItemData, currency: curr as Currency})} 
+                      className={`flex-1 py-2 rounded-xl text-[10px] font-black transition-all ${
+                        newItemData.currency === curr 
+                          ? 'bg-blue-600 text-white shadow-md' 
+                          : 'bg-gray-100 text-gray-400'
+                      }`}
+                    >
+                      {curr}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[10px] font-black text-gray-400 uppercase">{newAssetType === AccountType.STOCK ? 'Symbol' : 'Institution Name'}</label>
                 <div className="relative">
-                  <input placeholder="e.g. 700.HK" value={newAssetType === AccountType.STOCK ? newItemData.symbol : newItemData.name} onChange={e => setNewItemData({...newItemData, [newAssetType === AccountType.STOCK ? 'symbol' : 'name']: e.target.value})} className="w-full p-4 bg-gray-50 rounded-2xl outline-none font-bold text-blue-600 uppercase" />
+                  <input placeholder={newAssetType === AccountType.STOCK ? "e.g. 700.HK" : "e.g. HSBC"} value={newAssetType === AccountType.STOCK ? newItemData.symbol : newItemData.name} onChange={e => setNewItemData({...newItemData, [newAssetType === AccountType.STOCK ? 'symbol' : 'name']: e.target.value})} className="w-full p-4 bg-gray-50 rounded-2xl outline-none font-bold text-blue-600 uppercase" />
                   {newAssetType === AccountType.STOCK && (
                     <button onClick={async () => {
                       setIsFetchingPreview(true);
@@ -345,24 +366,46 @@ const UpdatePage: React.FC<UpdatePageProps> = ({ accounts, onSave }) => {
                   )}
                 </div>
               </div>
+
               {newAssetType === AccountType.STOCK && (
                 <div className="space-y-1">
                   <label className="text-[10px] font-black text-green-600 uppercase">Est. Price</label>
                   <input type="number" value={previewPrice} onChange={e => setPreviewPrice(Number(e.target.value))} className="w-full p-4 bg-green-50 rounded-2xl outline-none font-black text-green-700" placeholder="0.00" />
                 </div>
               )}
+
               <div className="space-y-1">
-                <label className="text-[10px] font-black text-gray-400 uppercase">Amount / Quantity</label>
-                <input type="number" value={newItemData.amount} onChange={e => setNewItemData({...newItemData, amount: e.target.value})} className="w-full p-4 bg-gray-50 rounded-2xl outline-none font-bold" />
+                <label className="text-[10px] font-black text-gray-400 uppercase">{newAssetType === AccountType.STOCK ? 'Quantity' : 'Balance'}</label>
+                <input type="number" value={newItemData.amount} onChange={e => setNewItemData({...newItemData, amount: e.target.value})} className="w-full p-4 bg-gray-50 rounded-2xl outline-none font-bold" placeholder="0.00" />
               </div>
+
               <button onClick={async () => {
                 const sym = newItemData.symbol.toUpperCase().trim();
                 const currentPrice = Number(previewPrice) || 0;
-                const newAcc: Account = { id: Date.now().toString(), name: newItemData.name || (newAssetType === AccountType.STOCK ? 'Stocks' : 'Deposit'), type: newAssetType!, currency: sym.endsWith('.AX') ? 'AUD' : (sym.endsWith('.HK') || /^\d+$/.test(sym)) ? 'HKD' : 'USD', symbol: sym, quantity: newAssetType === AccountType.STOCK ? Number(newItemData.amount) : undefined, balance: newAssetType === AccountType.CASH ? Number(newItemData.amount) : 0, lastPrice: currentPrice };
+                
+                // 決定貨幣邏輯：如果是銀行則採用按鈕選取的，如果是股票則根據後綴判斷
+                let finalCurrency = newItemData.currency;
+                if (newAssetType === AccountType.STOCK) {
+                  if (sym.endsWith('.AX')) finalCurrency = 'AUD';
+                  else if (sym.endsWith('.HK') || /^\d+$/.test(sym)) finalCurrency = 'HKD';
+                  else finalCurrency = 'USD';
+                }
+
+                const newAcc: Account = { 
+                  id: Date.now().toString(), 
+                  name: newItemData.name || (newAssetType === AccountType.STOCK ? 'Stocks' : 'Deposit'), 
+                  type: newAssetType!, 
+                  currency: finalCurrency, 
+                  symbol: sym, 
+                  quantity: newAssetType === AccountType.STOCK ? Number(newItemData.amount) : undefined, 
+                  balance: newAssetType === AccountType.CASH ? Number(newItemData.amount) : 0, 
+                  lastPrice: currentPrice 
+                };
+                
                 const updated = [...localAccounts, newAcc];
                 setLocalAccounts(updated);
                 setIsModalOpen(false);
-                setNewItemData({ name: '', symbol: '', amount: '' });
+                setNewItemData({ name: '', symbol: '', amount: '', currency: 'HKD' });
                 setPreviewPrice("");
                 await handleFinalSave(updated, currentPrice > 0 ? { [sym]: currentPrice } : {});
               }} className="w-full py-4 bg-blue-600 text-white rounded-2xl font-black">ADD ASSET</button>
