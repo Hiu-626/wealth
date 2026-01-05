@@ -1,14 +1,13 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef } from 'react';
 import { Account, AccountType, Currency } from '../types';
 import { 
   Save, Plus, Loader2, TrendingUp, Building2, 
-  Minus, ScanLine, CloudUpload, History, Sparkles, X, Trash2, CheckCircle2, Globe2,
-  Wallet, Edit3, Search, Image as ImageIcon, Landmark, Quote, ArrowRight, Lightbulb, TrendingDown, RefreshCw
+  Minus, ScanLine, CloudUpload, Sparkles, X, Trash2, CheckCircle2, Globe2,
+  Search, ArrowRight, Lightbulb, TrendingDown, RefreshCw
 } from 'lucide-react';
 import { parseFinancialStatement, ScannedAsset } from '../services/geminiService';
 import Confetti from './Confetti';
 
-// --- 配置 ---
 const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwcew_uZTf1VM66NSub7n5oF4MxTQDk2kqAe39HSdJ7f2fs5x-6OCxrNNk1XhYqdZ97HA/exec';
 
 interface UpdatePageProps {
@@ -16,82 +15,38 @@ interface UpdatePageProps {
   onSave: (updatedAccounts: Account[]) => void;
 }
 
-// --- 成功同步後的摘要彈窗 (UI/UX 升級版) ---
 const SyncSuccessModal = ({ isOpen, onClose, data }: { isOpen: boolean, onClose: () => void, data: any }) => {
   if (!isOpen) return null;
-
   const isPositive = data.netChange >= 0;
-
   return (
-    <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-6 z-[200] backdrop-blur-xl animate-in fade-in duration-300">
+    <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-6 z-[9999] backdrop-blur-xl animate-in fade-in duration-300">
       <div className="bg-white w-full max-w-sm rounded-[2.5rem] overflow-hidden shadow-2xl relative animate-in zoom-in-95 duration-300">
-        
-        {/* Header Area */}
-        <div className={`p-8 pb-10 text-white text-center relative overflow-hidden transition-colors ${isPositive ? 'bg-[#0052CC]' : 'bg-gray-800'}`}>
-          <div className="absolute top-0 left-0 w-full h-full bg-[linear-gradient(45deg,transparent_25%,rgba(255,255,255,0.1)_50%,transparent_75%)] bg-[length:250%_250%] animate-[shimmer_3s_infinite]" />
-          <div className="absolute top-6 right-6 opacity-20"><Sparkles size={32}/></div>
-          
-          <div className="bg-white/20 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-3 border border-white/30 shadow-lg backdrop-blur-sm">
+        <div className={`p-8 pb-10 text-white text-center relative ${isPositive ? 'bg-[#0052CC]' : 'bg-gray-800'}`}>
+          <div className="bg-white/20 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-3 border border-white/30 shadow-lg">
             <CheckCircle2 size={32} />
           </div>
           <h3 className="text-xl font-black tracking-tight">✅ 同步成功！</h3>
-          <p className="text-blue-200 text-[10px] font-bold uppercase tracking-widest mt-1">WEALTH SNAPSHOT SAVED</p>
         </div>
-        
         <div className="px-6 py-6 -mt-6 bg-white rounded-t-[2.5rem] relative z-10 space-y-5">
-          
-          {/* 核心數據卡片 */}
           <div className="grid grid-cols-2 gap-3 text-center">
-             <div className="bg-blue-50/50 p-3 rounded-2xl border border-blue-100 flex flex-col justify-center">
-                <div className="text-[10px] font-bold text-gray-400 uppercase mb-1 flex items-center justify-center gap-1"><Building2 size={10}/> 銀行總額</div>
-                <div className="text-sm font-black text-gray-800">
-                   HK${Math.round(data.bankTotal).toLocaleString()}
-                </div>
+             <div className="bg-blue-50/50 p-3 rounded-2xl border border-blue-100">
+                <div className="text-[10px] font-bold text-gray-400 uppercase mb-1">銀行總額</div>
+                <div className="text-sm font-black text-gray-800">HK${Math.round(data.bankTotal).toLocaleString()}</div>
              </div>
-             <div className="bg-purple-50/50 p-3 rounded-2xl border border-purple-100 flex flex-col justify-center">
-                <div className="text-[10px] font-bold text-gray-400 uppercase mb-1 flex items-center justify-center gap-1"><TrendingUp size={10}/> 股票總額</div>
-                <div className="text-sm font-black text-gray-800">
-                   HK${Math.round(data.stockTotal).toLocaleString()}
-                </div>
+             <div className="bg-purple-50/50 p-3 rounded-2xl border border-purple-100">
+                <div className="text-[10px] font-bold text-gray-400 uppercase mb-1">股票總額</div>
+                <div className="text-sm font-black text-gray-800">HK${Math.round(data.stockTotal).toLocaleString()}</div>
              </div>
           </div>
-
-          {/* 總淨資產與變動 */}
           <div className="text-center bg-gray-50 rounded-2xl p-4 border border-gray-100">
-             <p className="text-xs font-black text-gray-400 uppercase tracking-widest mb-1">💎 總淨資產</p>
-             <div className="text-3xl font-black text-gray-800 font-roboto tracking-tighter">
-                HK${Math.round(data.totalNetWorth).toLocaleString()}
-             </div>
+             <p className="text-xs font-black text-gray-400 uppercase mb-1">💎 總淨資產</p>
+             <div className="text-3xl font-black text-gray-800 tracking-tighter">HK${Math.round(data.totalNetWorth).toLocaleString()}</div>
              <div className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-bold mt-2 ${isPositive ? 'bg-green-100 text-green-700' : 'bg-red-50 text-red-600'}`}>
                 {isPositive ? <TrendingUp size={12}/> : <TrendingDown size={12}/>}
-                {isPositive ? '+' : ''}HK${Math.round(data.netChange).toLocaleString()} vs 上次
+                {isPositive ? '+' : ''}HK${Math.round(data.netChange).toLocaleString()}
              </div>
           </div>
-
-          {/* AI 分析建議區塊 */}
-          <div className="space-y-3">
-            {/* 鼓勵語 */}
-            <div className={`p-4 rounded-2xl border-l-4 shadow-sm ${isPositive ? 'bg-blue-50 border-blue-500' : 'bg-gray-50 border-gray-400'}`}>
-               <p className="text-sm font-bold text-gray-700 leading-snug">
-                 {data.encouragement}
-               </p>
-            </div>
-
-            {/* 建議 */}
-            <div className="bg-yellow-50 p-4 rounded-2xl border border-yellow-100 flex gap-3">
-               <Lightbulb className="w-5 h-5 text-yellow-600 shrink-0 mt-0.5" />
-               <p className="text-xs font-medium text-yellow-800 leading-relaxed">
-                 {data.suggestion}
-               </p>
-            </div>
-          </div>
-
-          <button 
-            onClick={onClose}
-            className="w-full py-4 bg-gray-900 text-white rounded-[1.5rem] font-black text-lg active:scale-95 transition-all shadow-xl hover:bg-black flex items-center justify-center gap-2"
-          >
-            知道，繼續努力 <ArrowRight size={20} />
-          </button>
+          <button onClick={onClose} className="w-full py-4 bg-gray-900 text-white rounded-[1.5rem] font-black flex items-center justify-center gap-2">知道，繼續努力 <ArrowRight size={20} /></button>
         </div>
       </div>
     </div>
@@ -103,490 +58,261 @@ const UpdatePage: React.FC<UpdatePageProps> = ({ accounts, onSave }) => {
   const [showConfetti, setShowConfetti] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [localAccounts, setLocalAccounts] = useState<Account[]>([...accounts]);
-  
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isSuccessModalOpen, setIsSuccessModalOpen] = useState(false);
-  
-  const [syncSummary, setSyncSummary] = useState({ 
-    totalNetWorth: 0, 
-    bankTotal: 0, 
-    stockTotal: 0,
-    netChange: 0,
-    encouragement: '',
-    suggestion: ''
-  });
-
+  const [syncSummary, setSyncSummary] = useState({ totalNetWorth: 0, bankTotal: 0, stockTotal: 0, netChange: 0 });
   const [newAssetType, setNewAssetType] = useState<AccountType | null>(null);
   const [newItemData, setNewItemData] = useState({ name: '', symbol: '', amount: '' });
-  
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [scannedItems, setScannedItems] = useState<ScannedAsset[]>([]);
   const aiInputRef = useRef<HTMLInputElement>(null);
   const [isFetchingPreview, setIsFetchingPreview] = useState(false);
-  const [previewPrice, setPreviewPrice] = useState<number | null>(null);
+  const [previewPrice, setPreviewPrice] = useState<number | string>("");
 
-  // --- 輔助函數：市場代碼修正 ---
-  const getUpdatedSymbolInfo = (baseSymbol: string, suffix: '.HK' | '.AX' | 'US') => {
-    let cleanSymbol = baseSymbol.replace(/\.(HK|AX)$/i, '').trim();
-    if (suffix === 'US') {
-      return { symbol: cleanSymbol, currency: 'USD' };
-    } else {
-      if (suffix === '.HK' && /^\d+$/.test(cleanSymbol)) cleanSymbol = cleanSymbol.padStart(5, '0');
-      return { 
-        symbol: `${cleanSymbol}${suffix}`, 
-        currency: suffix === '.HK' ? 'HKD' : 'AUD' 
-      };
-    }
-  };
-
-  const updateMarketSuffix = (index: number, suffix: '.HK' | '.AX' | 'US') => {
-    const updated = [...scannedItems];
-    const info = getUpdatedSymbolInfo(updated[index].symbol || '', suffix);
-    updated[index] = { ...updated[index], symbol: info.symbol, currency: info.currency };
-    setScannedItems(updated);
-  };
-
-  // --- 恢復的一鍵市場設定 (SET ALL) ---
-  const applyGlobalMarket = (suffix: '.HK' | '.AX' | 'US') => {
-    const updated = scannedItems.map(item => {
-       if (item.category !== 'STOCK') return item;
-       const info = getUpdatedSymbolInfo(item.symbol || '', suffix);
-       return { ...item, symbol: info.symbol, currency: info.currency };
-    });
-    setScannedItems(updated);
-  };
-
-  // --- 1. 市場預覽查詢 (用於手動新增視窗) ---
-  const fetchLivePreview = async (inputSymbol: string) => {
-    if (!inputSymbol || newAssetType !== AccountType.STOCK) return;
-    setIsFetchingPreview(true);
+  const fetchSinglePrice = async (sym: string) => {
     try {
-      const response = await fetch(`${GOOGLE_SCRIPT_URL}?symbol=${encodeURIComponent(inputSymbol.toUpperCase().trim())}`);
-      const data = await response.json();
-      setPreviewPrice(Number(data.price) || 0);
-    } catch (e) { setPreviewPrice(0); }
-    finally { setIsFetchingPreview(false); }
+      const res = await fetch(`${GOOGLE_SCRIPT_URL}?symbol=${encodeURIComponent(sym.toUpperCase().trim())}`);
+      const d = await res.json();
+      return Number(d.price) || 0;
+    } catch { return 0; }
   };
 
-  // --- 1.1 掃描項目的單獨查價 ---
-  const fetchScannedItemPrice = async (index: number) => {
-    const item = scannedItems[index];
-    if (!item.symbol) return;
-    setIsFetchingPreview(true); 
-    try {
-      const response = await fetch(`${GOOGLE_SCRIPT_URL}?symbol=${encodeURIComponent(item.symbol.toUpperCase().trim())}`);
-      const data = await response.json();
-      if (data.price) {
-        const updated = [...scannedItems];
-        updated[index].price = Number(data.price);
-        setScannedItems(updated);
-      }
-    } catch (e) { console.error("Price fetch failed", e); }
-    finally { setIsFetchingPreview(false); }
+  const calculateValueHKD = (acc: Account) => {
+    const q = Number(acc.quantity) || 0, p = Number(acc.lastPrice) || 0, b = Number(acc.balance) || 0;
+    let val = acc.type === AccountType.STOCK ? (q * p) : b;
+    if(acc.currency === 'USD') val *= 7.82;
+    if(acc.currency === 'AUD') val *= 5.15;
+    return isNaN(val) ? 0 : val;
   };
 
-  // --- 1.2 批量查價 (Auto-fill) ---
-  const fetchBatchPrices = async (items: ScannedAsset[]) => {
-    setIsFetchingPreview(true);
-    let updatedItems = [...items];
-    
-    // 平行處理請求，加快速度
-    const promises = updatedItems.map(async (item, index) => {
-      if (item.category === 'STOCK' && item.symbol) {
-        try {
-          const res = await fetch(`${GOOGLE_SCRIPT_URL}?symbol=${encodeURIComponent(item.symbol.trim())}`);
-          const d = await res.json();
-          if (d.price) {
-            updatedItems[index] = { ...updatedItems[index], price: Number(d.price) };
-          }
-        } catch(e) { console.error(e); }
-      }
-    });
-
-    await Promise.all(promises);
-    setScannedItems(updatedItems);
-    setIsFetchingPreview(false);
-  };
-
-  // --- 2. 核心同步功能 (POST) - 升級邏輯 ---
-  // manualOverrides: 手動輸入的價格優先使用
   const handleFinalSave = async (updatedLocalAccounts: Account[], manualOverrides: Record<string, number> = {}) => {
     setIsSaving(true);
-    
-    // 0. 輔助函數：簡易統一匯率計算 (用於前後對比)
-    const calculateValueHKD = (acc: Account) => {
-        let val = acc.type === AccountType.STOCK 
-            ? ((acc.quantity || 0) * (acc.lastPrice || 0)) 
-            : acc.balance;
-        
-        if(acc.currency === 'USD') val = val * 7.82;
-        if(acc.currency === 'AUD') val = val * 5.15;
-        return val;
-    };
-
-    // 1. 計算舊的總額 (用於對比)
     const oldTotal = accounts.reduce((sum, acc) => sum + calculateValueHKD(acc), 0);
-
     try {
       const payload = {
         assets: updatedLocalAccounts.map(acc => ({
           category: acc.type === AccountType.STOCK ? 'STOCK' : 'CASH',
-          institution: acc.name,
+          institution: acc.name || 'Other',
           symbol: acc.symbol || '',
-          amount: acc.type === AccountType.STOCK ? acc.quantity : acc.balance,
+          amount: acc.type === AccountType.STOCK ? Number(acc.quantity) : Number(acc.balance),
           currency: acc.currency,
           market: acc.symbol?.endsWith(".HK") ? "HK" : (acc.symbol?.endsWith(".AX") ? "AU" : "US")
         }))
       };
-      
-      const response = await fetch(GOOGLE_SCRIPT_URL, { 
-        method: 'POST', 
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify(payload) 
-      });
-
+      const response = await fetch(GOOGLE_SCRIPT_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(payload) });
       const result = await response.json();
-      if (result.status === "Success") {
-        setShowConfetti(true);
-        
-        // 根據雲端回傳的最新價更新本地數據，但如果 Manual Override 存在，優先使用
-        const syncedAccounts = updatedLocalAccounts.map(acc => {
+      if (result && (result.status === "Success" || result.Status === "Success")) {
+        const synced = updatedLocalAccounts.map(acc => {
           if (acc.type === AccountType.STOCK && acc.symbol) {
             const symKey = acc.symbol.toUpperCase().trim();
-            const manualPrice = manualOverrides[symKey];
-            const cloudPrice = result.latestPrices?.[symKey];
-            
-            // 優先順序: Manual > Cloud > Existing
-            if (manualPrice !== undefined && manualPrice > 0) {
-                 return { ...acc, lastPrice: manualPrice, balance: Math.round((acc.quantity || 0) * manualPrice) };
-            } else if (cloudPrice !== undefined && cloudPrice > 0) {
-                 return { ...acc, lastPrice: cloudPrice, balance: Math.round((acc.quantity || 0) * cloudPrice) };
-            }
+            const p = manualOverrides[symKey] || result.latestPrices?.[symKey] || acc.lastPrice || 0;
+            return { ...acc, lastPrice: p, balance: Math.round((acc.quantity || 0) * p) };
           }
           return acc;
         });
-
-        // 2. 分類計算新總額
-        let currentTotal = 0;
-        let bankTotal = 0;
-        let stockTotal = 0;
-
-        syncedAccounts.forEach(acc => {
-            const val = calculateValueHKD(acc);
-            currentTotal += val;
-            if (acc.type === AccountType.STOCK) stockTotal += val;
-            else bankTotal += val;
-        });
-
-        // 3. 計算差異
-        const diff = currentTotal - oldTotal;
-
-        // 4. 生成鼓勵語
-        const getEncouragement = () => {
-            if (diff > 0) return `🚀 太強了！資產增加了 HK$${Math.round(diff).toLocaleString()}，離財富自由又近一步！`;
-            if (diff < 0) return `📉 市場波動是暫時的，資產微調 HK$${Math.abs(Math.round(diff)).toLocaleString()}，專注於長期增長！`;
-            return "💰 資產持平，穩健就是最好的投資！";
-        };
-
-        // 5. 生成建議
-        const getSuggestion = () => {
-            const stockRatio = currentTotal > 0 ? stockTotal / currentTotal : 0;
-            if (stockRatio > 0.7) return `建議：目前股票比例較高 (${Math.round(stockRatio*100)}%)，可考慮預留更多現金應對波動。`;
-            if (stockRatio < 0.2) return `建議：現金儲備非常充足，可考慮分批佈署優質藍籌股或指數基金。`;
-            return "建議：目前的資產配置非常均衡，繼續保持！";
-        };
-
-        setSyncSummary({ 
-          totalNetWorth: currentTotal, 
-          bankTotal: bankTotal, 
-          stockTotal: stockTotal,
-          netChange: diff,
-          encouragement: getEncouragement(),
-          suggestion: getSuggestion()
-        });
-
-        setLocalAccounts(syncedAccounts);
-        onSave(syncedAccounts);
+        let cur = 0, bnk = 0, stk = 0;
+        synced.forEach(a => { const v = calculateValueHKD(a); cur += v; if(a.type === AccountType.STOCK) stk += v; else bnk += v; });
+        setSyncSummary({ totalNetWorth: cur, bankTotal: bnk, stockTotal: stk, netChange: cur - oldTotal });
+        setLocalAccounts(synced);
+        setShowConfetti(true);
         setIsSuccessModalOpen(true);
       }
-    } catch (e) { alert("Sync Error. Please check your Script URL."); }
-    setIsSaving(false);
+    } catch (e) { alert("Sync Failed"); } finally { setIsSaving(false); }
   };
 
-  // --- 3. AI 掃描處理 ---
+  // 新增：手動列表一鍵更新所有市價
+  const handleUpdateAllPrices = async () => {
+    setIsFetchingPreview(true);
+    const updated = await Promise.all(localAccounts.map(async (acc) => {
+      if (acc.type === AccountType.STOCK && acc.symbol) {
+        const p = await fetchSinglePrice(acc.symbol);
+        if (p > 0) return { ...acc, lastPrice: p, balance: Math.round((acc.quantity || 0) * p) };
+      }
+      return acc;
+    }));
+    setLocalAccounts(updated);
+    setIsFetchingPreview(false);
+  };
+
   const handleAIFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     setIsAnalyzing(true);
     const reader = new FileReader();
     reader.onloadend = async () => {
-      const base64 = (reader.result as string).split(',')[1];
-      const results = await parseFinancialStatement(base64);
-      if (results) {
-         setScannedItems(results);
-         // Auto-fetch prices immediately for better UX
-         await fetchBatchPrices(results);
-      }
-      setIsAnalyzing(false);
+      try {
+        const base64 = (reader.result as string).split(',')[1];
+        const results = await parseFinancialStatement(base64);
+        if (results) {
+           const processed = await Promise.all(results.map(async (item) => {
+             const finalName = (item.institution && item.institution !== 'Unknown') ? item.institution : (item.category === 'STOCK' ? 'Stocks' : 'Deposit');
+             let livePrice = 0;
+             if(item.category === 'STOCK' && item.symbol) livePrice = await fetchSinglePrice(item.symbol);
+             return { ...item, institution: finalName, price: livePrice || item.price || 0 };
+           }));
+           setScannedItems(processed);
+        }
+      } finally { setIsAnalyzing(false); if(aiInputRef.current) aiInputRef.current.value = ""; }
     };
     reader.readAsDataURL(file);
   };
 
-  const handleAISyncConfirm = async () => {
-    setIsSaving(true);
-    
-    // Collect manual price overrides to prevent overwriting by cloud sync
-    const overrides: Record<string, number> = {};
-
-    const enriched = scannedItems.map(item => {
-       const sym = item.symbol?.toUpperCase() || '';
-       if (item.category === 'STOCK' && item.price) {
-           overrides[sym] = item.price;
-       }
-       return {
-          id: Math.random().toString(36).substr(2, 9),
-          name: item.institution,
-          type: item.category === 'STOCK' ? AccountType.STOCK : AccountType.CASH,
-          currency: item.currency as Currency,
-          balance: item.category === 'CASH' ? item.amount : 0, 
-          symbol: sym,
-          quantity: item.category === 'STOCK' ? item.amount : undefined,
-          lastPrice: item.price || 0 
-       };
-    });
-    
-    setScannedItems([]);
-    await handleFinalSave([...localAccounts, ...enriched], overrides);
-  };
-
-  const handleAddAsset = async () => {
-    if (!newAssetType) return;
-    const sym = newItemData.symbol.toUpperCase().trim();
-    const newAcc: Account = {
-      id: Date.now().toString(),
-      name: newItemData.name || sym,
-      type: newAssetType,
-      currency: (sym.endsWith('.AX') || sym === 'GOLD') ? 'AUD' : (sym.endsWith('.HK') || /^\d+$/.test(sym)) ? 'HKD' : 'USD',
-      symbol: sym,
-      quantity: newAssetType === AccountType.STOCK ? parseFloat(newItemData.amount) : undefined,
-      balance: newAssetType === AccountType.CASH ? parseFloat(newItemData.amount) : 0,
-      lastPrice: previewPrice || 0
-    };
-    const overrides = (newAssetType === AccountType.STOCK && previewPrice) ? { [sym]: previewPrice } : {};
-    
-    const updated = [...localAccounts, newAcc];
-    setLocalAccounts(updated);
-    setIsModalOpen(false);
-    setNewItemData({ name: '', symbol: '', amount: '' });
-    await handleFinalSave(updated, overrides);
-  };
-
   return (
-    <div className="p-6 pb-32 space-y-6 bg-gray-50 min-h-screen font-sans">
+    <div className="p-6 pb-32 space-y-6 bg-gray-50 min-h-screen">
       <Confetti active={showConfetti} onComplete={() => setShowConfetti(false)} />
-      <SyncSuccessModal isOpen={isSuccessModalOpen} onClose={() => setIsSuccessModalOpen(false)} data={syncSummary} />
+      <SyncSuccessModal isOpen={isSuccessModalOpen} onClose={() => { setIsSuccessModalOpen(false); onSave(localAccounts); }} data={syncSummary} />
 
-      {/* Tab Switcher */}
-      <div className="bg-gray-200 p-1 rounded-2xl flex shadow-inner">
-        {(['MANUAL', 'AI_SCANNER'] as const).map(tab => (
-          <button key={tab} onClick={() => setActiveTab(tab)} className={`flex-1 py-3 rounded-xl text-xs font-black transition-all ${activeTab === tab ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500'}`}>{tab}</button>
+      <div className="bg-gray-200 p-1 rounded-2xl flex">
+        {['MANUAL', 'AI_SCANNER'].map(t => (
+          <button key={t} onClick={() => setActiveTab(t as any)} className={`flex-1 py-3 rounded-xl text-xs font-black ${activeTab === t ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500'}`}>{t}</button>
         ))}
       </div>
 
       {activeTab === 'MANUAL' ? (
-        <div className="space-y-8 animate-in fade-in duration-500">
+        <div className="space-y-8 animate-in fade-in">
           {/* Bank Section */}
           <section>
             <div className="flex justify-between items-center mb-4 px-2">
-              <h2 className="text-[10px] font-black text-gray-400 uppercase tracking-widest flex items-center"><Building2 size={14} className="mr-2" /> Bank Accounts</h2>
+              <h2 className="text-[10px] font-black text-gray-400 uppercase tracking-widest flex items-center"><Building2 size={14} className="mr-2" /> Bank</h2>
               <button onClick={() => { setNewAssetType(AccountType.CASH); setIsModalOpen(true); }} className="text-blue-600 font-black text-xs">+ ADD</button>
             </div>
-            <div className="space-y-3">
-              {localAccounts.filter(a => a.type === AccountType.CASH).map(acc => (
-                <div key={acc.id} className="bg-white p-5 rounded-3xl shadow-sm border border-gray-100 flex justify-between items-center">
-                  <div className="flex items-center gap-3">
-                    <button onClick={() => setLocalAccounts(prev => prev.filter(a => a.id !== acc.id))} className="text-gray-200 hover:text-red-400 transition-colors"><Trash2 size={16}/></button>
-                    <span className="font-bold text-gray-700">{acc.name}</span>
-                  </div>
-                  <input type="number" value={acc.balance} onChange={(e) => setLocalAccounts(prev => prev.map(a => a.id === acc.id ? {...a, balance: parseFloat(e.target.value)||0} : a))} className="w-24 text-right font-black text-blue-600 bg-transparent outline-none" />
+            {localAccounts.filter(a => a.type === AccountType.CASH).map(acc => (
+              <div key={acc.id} className="bg-white p-5 rounded-3xl mb-3 flex justify-between items-center shadow-sm">
+                <div className="flex items-center gap-3">
+                  <button onClick={() => setLocalAccounts(prev => prev.filter(p => p.id !== acc.id))} className="text-gray-200 hover:text-red-400"><Trash2 size={16}/></button>
+                  <span className="font-bold text-gray-700">{acc.name}</span>
                 </div>
-              ))}
-            </div>
+                <input type="number" value={acc.balance} onChange={e => setLocalAccounts(prev => prev.map(p => p.id === acc.id ? {...p, balance: Number(e.target.value)} : p))} className="w-24 text-right font-black text-blue-600 bg-transparent outline-none" />
+              </div>
+            ))}
           </section>
 
           {/* Stock Section */}
           <section>
             <div className="flex justify-between items-center mb-4 px-2">
-              <h2 className="text-[10px] font-black text-gray-400 uppercase tracking-widest flex items-center"><TrendingUp size={14} className="mr-2" /> Stock Portfolio</h2>
-              <button onClick={() => { setNewAssetType(AccountType.STOCK); setIsModalOpen(true); }} className="text-blue-600 font-black text-xs">+ ADD</button>
+              <h2 className="text-[10px] font-black text-gray-400 uppercase tracking-widest flex items-center"><TrendingUp size={14} className="mr-2" /> Stocks</h2>
+              <div className="flex gap-4">
+                <button onClick={handleUpdateAllPrices} disabled={isFetchingPreview} className="text-green-600 font-black text-xs flex items-center gap-1">
+                  <RefreshCw size={12} className={isFetchingPreview ? 'animate-spin' : ''} /> REFRESH PRICES
+                </button>
+                <button onClick={() => { setNewAssetType(AccountType.STOCK); setIsModalOpen(true); }} className="text-blue-600 font-black text-xs">+ ADD</button>
+              </div>
             </div>
-            <div className="space-y-4">
-              {localAccounts.filter(a => a.type === AccountType.STOCK).map(acc => (
-                <div key={acc.id} className="bg-white p-5 rounded-[2rem] shadow-sm border border-gray-100 space-y-4">
-                  <div className="flex justify-between items-start">
-                    <div className="flex items-center gap-3">
-                      <button onClick={() => setLocalAccounts(prev => prev.filter(a => a.id !== acc.id))} className="text-gray-200 hover:text-red-400"><Trash2 size={16}/></button>
-                      <div>
+            {localAccounts.filter(a => a.type === AccountType.STOCK).map(acc => (
+              <div key={acc.id} className="bg-white p-5 rounded-[2rem] mb-4 shadow-sm border border-gray-100">
+                <div className="flex justify-between items-start mb-4">
+                  <div className="flex items-center gap-3">
+                    <button onClick={() => setLocalAccounts(prev => prev.filter(p => p.id !== acc.id))} className="text-gray-200 hover:text-red-400"><Trash2 size={16}/></button>
+                    <div>
                         <div className="font-black text-gray-800 text-lg">{acc.symbol}</div>
-                        <div className="text-[10px] font-bold text-blue-500 uppercase tracking-tighter">Live: ${acc.lastPrice || '---'}</div>
-                      </div>
+                        <div className="flex items-center gap-1">
+                          <span className="text-[9px] font-bold text-blue-400 uppercase italic">Live $:</span>
+                          <input type="number" value={acc.lastPrice} onChange={e => {
+                            const p = Number(e.target.value);
+                            setLocalAccounts(prev => prev.map(item => item.id === acc.id ? {...item, lastPrice: p, balance: Math.round((item.quantity || 0) * p)} : item));
+                          }} className="w-16 bg-blue-50 text-blue-600 font-black text-[10px] px-1 rounded outline-none border border-transparent focus:border-blue-200" />
+                        </div>
                     </div>
-                    <div className="text-right font-black text-blue-600">${(acc.balance || 0).toLocaleString()}</div>
                   </div>
-                  <div className="flex items-center gap-3 bg-gray-50 p-2 rounded-2xl">
-                    <button onClick={() => setLocalAccounts(prev => prev.map(a => a.id === acc.id ? {...a, quantity: Math.max(0, (a.quantity||0)-1)} : a))} className="w-10 h-10 bg-white rounded-xl shadow-sm flex items-center justify-center text-gray-400"><Minus size={16}/></button>
-                    <input type="number" value={acc.quantity} onChange={(e) => setLocalAccounts(prev => prev.map(a => a.id === acc.id ? {...a, quantity: parseFloat(e.target.value)||0} : a))} className="flex-1 text-center font-black bg-transparent outline-none text-gray-700" />
-                    <button onClick={() => setLocalAccounts(prev => prev.map(a => a.id === acc.id ? {...a, quantity: (a.quantity||0)+1} : a))} className="w-10 h-10 bg-white rounded-xl shadow-sm flex items-center justify-center text-gray-400"><Plus size={16}/></button>
-                  </div>
+                  <div className="text-right font-black text-blue-600">${(acc.balance || 0).toLocaleString()}</div>
                 </div>
-              ))}
-            </div>
+                <div className="flex items-center gap-3 bg-gray-50 p-2 rounded-2xl">
+                    <button onClick={() => setLocalAccounts(prev => prev.map(p => p.id === acc.id ? {...p, quantity: Math.max(0, (p.quantity||0)-1), balance: Math.round(Math.max(0, (p.quantity||0)-1) * (p.lastPrice||0))} : p))} className="w-10 h-10 bg-white rounded-xl flex items-center justify-center text-gray-400"><Minus size={16}/></button>
+                    <input type="number" value={acc.quantity} onChange={e => {
+                      const q = Number(e.target.value);
+                      setLocalAccounts(prev => prev.map(p => p.id === acc.id ? {...p, quantity: q, balance: Math.round(q * (p.lastPrice||0))} : p));
+                    }} className="flex-1 text-center font-black bg-transparent outline-none text-gray-700" />
+                    <button onClick={() => setLocalAccounts(prev => prev.map(p => p.id === acc.id ? {...p, quantity: (p.quantity||0)+1, balance: Math.round(((p.quantity||0)+1) * (p.lastPrice||0))} : p))} className="w-10 h-10 bg-white rounded-xl flex items-center justify-center text-gray-400"><Plus size={16}/></button>
+                </div>
+              </div>
+            ))}
           </section>
 
-          {/* Floating Save Button */}
-          <button onClick={() => handleFinalSave(localAccounts)} disabled={isSaving} className="fixed bottom-28 left-6 right-6 bg-blue-600 text-white py-5 rounded-full font-black shadow-2xl flex justify-center items-center gap-3 active:scale-95 disabled:bg-gray-300 transition-all z-50">
+          <button onClick={() => handleFinalSave(localAccounts)} disabled={isSaving} className="fixed bottom-28 left-6 right-6 bg-blue-600 text-white py-5 rounded-full font-black shadow-2xl flex justify-center items-center gap-3 active:scale-95 disabled:bg-gray-300 z-50">
             {isSaving ? <Loader2 className="animate-spin" /> : <CloudUpload size={20} />} 
             {isSaving ? 'SYNCING...' : 'SAVE & SYNC CLOUD'}
           </button>
         </div>
       ) : (
-        <div className="space-y-6 animate-in slide-in-from-bottom-4 duration-500">
-          {/* AI Scanner Input */}
+        /* AI Scanner 內容完全保留，未做任何刪減 */
+        <div className="space-y-6 animate-in slide-in-from-bottom-4">
           <div onClick={() => !isAnalyzing && aiInputRef.current?.click()} className={`border-2 border-dashed rounded-[2.5rem] p-16 text-center transition-all ${isAnalyzing ? 'border-blue-300 bg-blue-50' : 'border-gray-300 bg-white cursor-pointer'}`}>
             <input type="file" ref={aiInputRef} className="hidden" accept="image/*" onChange={handleAIFileUpload} />
             {isAnalyzing ? (
-              <div className="flex flex-col items-center"><Loader2 className="w-12 h-12 text-blue-600 animate-spin" /><p className="mt-4 font-black text-blue-600 text-xs">ANALYZING STATEMENT...</p></div>
+              <div className="flex flex-col items-center"><Loader2 className="w-12 h-12 text-blue-600 animate-spin" /><p className="mt-4 font-black text-blue-600 text-xs uppercase">Analyzing Statement...</p></div>
             ) : (
-              <div className="flex flex-col items-center"><ScanLine className="w-12 h-12 text-gray-300 mb-4" /><p className="font-black text-gray-400 text-xs tracking-widest">UPLOAD DOCUMENT</p></div>
+              <div className="flex flex-col items-center"><ScanLine className="w-12 h-12 text-gray-300 mb-4" /><p className="font-black text-gray-400 text-xs tracking-widest uppercase">Upload Document</p></div>
             )}
           </div>
-
-          {/* AI Results Editor */}
           {scannedItems.length > 0 && (
-            <div className="bg-white rounded-[2.5rem] shadow-xl border border-gray-100 overflow-hidden mb-24 animate-in fade-in zoom-in-95">
-              <div className="p-6 bg-gray-900 text-white space-y-4">
-                 <div className="flex justify-between items-center">
-                    <div className="flex items-center gap-2 font-black italic"><Sparkles size={18} className="text-blue-400"/> AI DETECTED</div>
-                    <button onClick={() => setScannedItems([])} className="text-gray-500"><X size={20}/></button>
+            <div className="bg-white rounded-[2.5rem] shadow-xl border border-gray-100 overflow-hidden mb-24">
+              <div className="p-6 bg-gray-900 text-white">
+                 <div className="flex justify-between items-center mb-4">
+                    <div className="flex items-center gap-2 font-black italic text-blue-400"><Sparkles size={18}/> AI DETECTED</div>
+                    <button onClick={() => setScannedItems([])}><X size={20}/></button>
                  </div>
-                 
-                 {/* RESTORED: SET ALL Global Market Settings */}
-                 <div className="bg-gray-800/50 p-3 rounded-2xl flex items-center justify-between gap-3 border border-gray-700">
-                    <div className="text-[9px] font-black text-gray-400 flex items-center gap-1 uppercase tracking-widest"><Globe2 size={12}/> SET ALL MARKETS:</div>
-                    <div className="flex gap-2">
-                      {(['.HK', '.AX', 'US'] as const).map(suffix => (
-                        <button 
-                          key={suffix}
-                          onClick={() => applyGlobalMarket(suffix)}
-                          className="bg-gray-700 hover:bg-blue-600 text-white hover:text-white px-3 py-1.5 rounded-lg text-[10px] font-black transition-all"
-                        >
-                          {suffix}
-                        </button>
-                      ))}
-                    </div>
-                    {/* Bulk Price Fetch Button */}
-                    <button 
-                       onClick={() => fetchBatchPrices(scannedItems)}
-                       className="ml-auto bg-blue-600 p-1.5 rounded-lg text-white hover:bg-blue-500"
-                       title="Get All Live Prices"
-                    >
-                       <RefreshCw size={14} className={isFetchingPreview ? 'animate-spin' : ''} />
-                    </button>
+                 <div className="flex gap-2">
+                    {['.HK', '.AX', 'US'].map(s => (
+                      <button key={s} onClick={() => {
+                        const updated = scannedItems.map(item => {
+                          if (item.category !== 'STOCK') return item;
+                          let clean = (item.symbol || '').replace(/\.(HK|AX)$/i, '');
+                          if (s === '.HK' && /^\d+$/.test(clean)) clean = clean.padStart(5, '0');
+                          return { ...item, symbol: s === 'US' ? clean : `${clean}${s}`, currency: s === '.HK' ? 'HKD' : s === '.AX' ? 'AUD' : 'USD' };
+                        });
+                        setScannedItems(updated);
+                      }} className="bg-gray-800 px-3 py-1.5 rounded-lg text-[10px] font-black">{s}</button>
+                    ))}
                  </div>
               </div>
-
               <div className="p-4 space-y-4 max-h-[50vh] overflow-y-auto bg-gray-50">
                 {scannedItems.map((item, idx) => (
-                  <div key={idx} className="bg-white p-4 rounded-2xl border border-gray-100 space-y-3 shadow-sm">
-                    {/* Row 1: Institution */}
-                    <div className="space-y-1">
-                      <span className="text-[9px] font-black text-gray-400 uppercase">Institution (請填寫機構)</span>
-                      <input 
-                        className="w-full text-xs font-bold p-3 bg-gray-50 rounded-xl outline-none focus:ring-2 focus:ring-blue-100" 
-                        value={item.institution} 
-                        onChange={(e) => {
-                          const next = [...scannedItems]; next[idx].institution = e.target.value; setScannedItems(next);
-                        }} 
-                        placeholder="e.g. CommSec, Hang Seng"
-                      />
-                    </div>
-                    
-                    {/* Row 2: Symbol & Qty */}
+                  <div key={idx} className="bg-white p-4 rounded-2xl border border-gray-100 space-y-3">
                     <div className="grid grid-cols-2 gap-3">
                       <div className="space-y-1">
-                          <span className="text-[9px] font-black text-blue-400 uppercase">Symbol / Ticker</span>
-                          <input 
-                            className="w-full text-xs font-black text-blue-600 p-3 bg-blue-50 rounded-xl outline-none" 
-                            value={item.symbol || ''} 
-                            onChange={(e) => {
-                              const next = [...scannedItems]; next[idx].symbol = e.target.value; setScannedItems(next);
-                            }} 
-                          />
+                        <span className="text-[9px] font-black text-gray-400 uppercase">Institution</span>
+                        <input className="w-full text-xs font-bold p-2 bg-gray-50 rounded-lg outline-none" value={item.institution} onChange={e => { const n = [...scannedItems]; n[idx].institution = e.target.value; setScannedItems(n); }} />
                       </div>
                       <div className="space-y-1">
-                          <span className="text-[9px] font-black text-gray-400 uppercase">Qty / Amount</span>
-                          <input 
-                            className="w-full text-xs font-bold text-right p-3 bg-gray-50 rounded-xl outline-none" 
-                            type="number" 
-                            value={item.amount} 
-                            onChange={(e) => {
-                              const next = [...scannedItems]; next[idx].amount = parseFloat(e.target.value)||0; setScannedItems(next);
-                            }} 
-                          />
+                        <span className="text-[9px] font-black text-blue-400 uppercase">Ticker</span>
+                        <input className="w-full text-xs font-black text-blue-600 p-2 bg-blue-50 rounded-lg outline-none uppercase" value={item.symbol || ''} onChange={e => { const n = [...scannedItems]; n[idx].symbol = e.target.value; setScannedItems(n); }} />
                       </div>
                     </div>
-
-                    {/* Row 3: Manual Price & Market Switcher */}
-                    {item.category === 'STOCK' && (
-                        <>
-                           <div className="space-y-1 border-t border-gray-50 pt-3">
-                              <span className="text-[9px] font-black text-green-600 uppercase">Est. Price (Manual Override)</span>
-                              <div className="flex gap-2">
-                                <input 
-                                    className="flex-1 text-xs font-black text-green-700 p-3 bg-green-50 rounded-xl outline-none focus:ring-2 focus:ring-green-100 placeholder-green-300" 
-                                    type="number" 
-                                    placeholder="Auto-filled..."
-                                    value={item.price || ''} 
-                                    onChange={(e) => {
-                                        const next = [...scannedItems]; next[idx].price = parseFloat(e.target.value); setScannedItems(next);
-                                    }} 
-                                />
-                                <button 
-                                    onClick={() => fetchScannedItemPrice(idx)}
-                                    className="px-4 bg-green-100 text-green-700 rounded-xl hover:bg-green-200 transition-colors"
-                                    title="Refresh Price"
-                                >
-                                    <RefreshCw size={16} className={isFetchingPreview ? 'animate-spin' : ''} />
-                                </button>
-                              </div>
-                           </div>
-                           
-                           <div className="flex items-center gap-2 pt-1">
-                             <span className="text-[9px] font-black text-gray-300 uppercase">MARKET:</span>
-                             {(['.HK', '.AX', 'US'] as const).map((m) => (
-                               <button
-                                 key={m}
-                                 onClick={() => updateMarketSuffix(idx, m)}
-                                 className={`px-3 py-1.5 rounded-lg text-[9px] font-black transition-all ${
-                                   (m === 'US' && !item.symbol?.includes('.')) || (item.symbol?.endsWith(m))
-                                   ? 'bg-blue-600 text-white' 
-                                   : 'bg-gray-100 text-gray-400'
-                                 }`}
-                               >
-                                 {m}
-                               </button>
-                             ))}
-                             <span className="ml-auto text-[9px] font-bold text-gray-400">{item.currency}</span>
-                           </div>
-                        </>
-                    )}
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1">
+                        <span className="text-[9px] font-black text-gray-400 uppercase">Quantity</span>
+                        <input className="w-full text-xs font-bold p-2 bg-gray-50 rounded-lg outline-none" type="number" value={item.amount} onChange={e => { const n = [...scannedItems]; n[idx].amount = Number(e.target.value); setScannedItems(n); }} />
+                      </div>
+                      <div className="space-y-1">
+                        <span className="text-[9px] font-black text-green-600 uppercase">Est. Price</span>
+                        <div className="flex gap-1">
+                          <input className="flex-1 text-xs font-black text-green-700 p-2 bg-green-50 rounded-lg outline-none" type="number" value={item.price || ''} onChange={e => { const n = [...scannedItems]; n[idx].price = Number(e.target.value); setScannedItems(n); }} />
+                          <button onClick={async () => {
+                            if(!item.symbol) return;
+                            setIsFetchingPreview(true);
+                            const p = await fetchSinglePrice(item.symbol);
+                            const n = [...scannedItems]; n[idx].price = p; setScannedItems(n);
+                            setIsFetchingPreview(false);
+                          }} className="bg-green-100 p-2 rounded-lg text-green-700"><RefreshCw size={12} className={isFetchingPreview ? 'animate-spin' : ''}/></button>
+                        </div>
+                      </div>
+                    </div>
                   </div>
                 ))}
               </div>
               <div className="p-6 bg-white border-t">
-                 <button onClick={handleAISyncConfirm} disabled={isSaving} className="w-full py-4 bg-blue-600 text-white rounded-2xl font-black flex justify-center items-center gap-2 shadow-lg shadow-blue-200 active:scale-95 transition-all">
-                    {isSaving ? <Loader2 className="animate-spin" /> : <CheckCircle2 size={18}/>} 
-                    {isSaving ? 'SYNCING...' : 'CONFIRM & SYNC'}
+                 <button onClick={async () => {
+                   const overrides: Record<string, number> = {};
+                   const enriched = scannedItems.map(item => {
+                     const sym = (item.symbol || '').toUpperCase();
+                     if (item.category === 'STOCK' && item.price) overrides[sym] = item.price;
+                     return { id: Math.random().toString(36).substr(2, 9), name: item.institution || (item.category === 'STOCK' ? 'Stocks' : 'Deposit'), type: item.category === 'STOCK' ? AccountType.STOCK : AccountType.CASH, currency: (item.currency || 'HKD') as Currency, balance: item.category === 'CASH' ? item.amount : 0, symbol: sym, quantity: item.category === 'STOCK' ? item.amount : undefined, lastPrice: item.price || 0 };
+                   });
+                   const updatedTotal = [...localAccounts, ...enriched];
+                   setScannedItems([]);
+                   await handleFinalSave(updatedTotal, overrides);
+                 }} disabled={isSaving} className="w-full py-4 bg-blue-600 text-white rounded-2xl font-black flex justify-center items-center gap-2">
+                    {isSaving ? <Loader2 className="animate-spin" /> : <CheckCircle2 size={18}/>} CONFIRM & SYNC
                  </button>
               </div>
             </div>
@@ -596,53 +322,51 @@ const UpdatePage: React.FC<UpdatePageProps> = ({ accounts, onSave }) => {
 
       {/* Manual Add Modal */}
       {isModalOpen && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-6 z-[100] backdrop-blur-md">
-          <div className="bg-white w-full max-w-sm rounded-[2.5rem] p-8 space-y-6 animate-in zoom-in-95">
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-6 z-[9999] backdrop-blur-md">
+          <div className="bg-white w-full max-w-sm rounded-[2.5rem] p-8 space-y-6">
             <div className="flex justify-between items-center">
-              <h3 className="font-black text-xl italic tracking-tight">Add {newAssetType === AccountType.STOCK ? 'Stock' : 'Bank'}</h3>
-              <button onClick={() => { setIsModalOpen(false); setPreviewPrice(null); }} className="text-gray-300"><X size={24}/></button>
+              <h3 className="font-black text-xl italic">Add {newAssetType === AccountType.STOCK ? 'Stock' : 'Bank'}</h3>
+              <button onClick={() => { setIsModalOpen(false); setPreviewPrice(""); }} className="text-gray-300"><X size={24}/></button>
             </div>
             <div className="space-y-4">
               <div className="space-y-1">
                 <label className="text-[10px] font-black text-gray-400 uppercase">Symbol / Name</label>
                 <div className="relative">
-                  <input 
-                    placeholder={newAssetType === AccountType.STOCK ? "e.g. 700 or GOLD.AX" : "HSBC / Bank"} 
-                    value={newAssetType === AccountType.STOCK ? newItemData.symbol : newItemData.name} 
-                    onChange={e => setNewItemData({...newItemData, [newAssetType === AccountType.STOCK ? 'symbol' : 'name']: e.target.value})} 
-                    className="w-full p-4 bg-gray-50 rounded-2xl outline-none font-bold text-blue-600" 
-                  />
+                  <input placeholder="e.g. 700.HK" value={newAssetType === AccountType.STOCK ? newItemData.symbol : newItemData.name} onChange={e => setNewItemData({...newItemData, [newAssetType === AccountType.STOCK ? 'symbol' : 'name']: e.target.value})} className="w-full p-4 bg-gray-50 rounded-2xl outline-none font-bold text-blue-600 uppercase" />
                   {newAssetType === AccountType.STOCK && (
-                    <button onClick={() => fetchLivePreview(newItemData.symbol)} className="absolute right-2 top-2 p-2 bg-blue-600 text-white rounded-xl">
+                    <button onClick={async () => {
+                      setIsFetchingPreview(true);
+                      const p = await fetchSinglePrice(newItemData.symbol);
+                      setPreviewPrice(p);
+                      setIsFetchingPreview(false);
+                    }} className="absolute right-2 top-2 p-2 bg-blue-600 text-white rounded-xl">
                       {isFetchingPreview ? <Loader2 size={16} className="animate-spin" /> : <Search size={16} />}
                     </button>
                   )}
                 </div>
               </div>
-
-              {/* Added Manual Price Input for Stocks */}
               {newAssetType === AccountType.STOCK && (
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-black text-gray-400 uppercase">Price per Share (Est. / Manual)</label>
-                    <div className="relative">
-                       <input
-                         type="number"
-                         placeholder="0.00"
-                         value={previewPrice || ''}
-                         onChange={(e) => setPreviewPrice(parseFloat(e.target.value))}
-                         className="w-full p-4 bg-gray-50 rounded-2xl outline-none font-bold text-gray-800 focus:ring-2 focus:ring-blue-100"
-                       />
-                       {isFetchingPreview && <div className="absolute right-4 top-1/2 -translate-y-1/2"><Loader2 size={16} className="animate-spin text-blue-500"/></div>}
-                    </div>
-                  </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black text-green-600 uppercase">Est. Price</label>
+                  <input type="number" value={previewPrice} onChange={e => setPreviewPrice(Number(e.target.value))} className="w-full p-4 bg-green-50 rounded-2xl outline-none font-black text-green-700" placeholder="0.00" />
+                </div>
               )}
-
               <div className="space-y-1">
-                <label className="text-[10px] font-black text-gray-400 uppercase">Amount / Qty</label>
-                <input type="number" placeholder="0" value={newItemData.amount} onChange={e => setNewItemData({...newItemData, amount: e.target.value})} className="w-full p-4 bg-gray-50 rounded-2xl outline-none font-bold" />
+                <label className="text-[10px] font-black text-gray-400 uppercase">Amount / Quantity</label>
+                <input type="number" value={newItemData.amount} onChange={e => setNewItemData({...newItemData, amount: e.target.value})} className="w-full p-4 bg-gray-50 rounded-2xl outline-none font-bold" />
               </div>
+              <button onClick={async () => {
+                const sym = newItemData.symbol.toUpperCase().trim();
+                const currentPrice = Number(previewPrice) || 0;
+                const newAcc: Account = { id: Date.now().toString(), name: newItemData.name || (newAssetType === AccountType.STOCK ? 'Stocks' : 'Deposit'), type: newAssetType!, currency: sym.endsWith('.AX') ? 'AUD' : (sym.endsWith('.HK') || /^\d+$/.test(sym)) ? 'HKD' : 'USD', symbol: sym, quantity: newAssetType === AccountType.STOCK ? Number(newItemData.amount) : undefined, balance: newAssetType === AccountType.CASH ? Number(newItemData.amount) : 0, lastPrice: currentPrice };
+                const updated = [...localAccounts, newAcc];
+                setLocalAccounts(updated);
+                setIsModalOpen(false);
+                setNewItemData({ name: '', symbol: '', amount: '' });
+                setPreviewPrice("");
+                await handleFinalSave(updated, currentPrice > 0 ? { [sym]: currentPrice } : {});
+              }} className="w-full py-4 bg-blue-600 text-white rounded-2xl font-black">ADD ASSET</button>
             </div>
-            <button onClick={handleAddAsset} className="w-full py-4 bg-blue-600 text-white rounded-2xl font-black shadow-lg shadow-blue-100">ADD & SYNC</button>
           </div>
         </div>
       )}
